@@ -1,0 +1,8 @@
+numpy>=2.0
+scipy>=1.13
+opencv-python-headless>=4.10
+mediapipe>=0.10.30
+bpy>=4.2
+anthropic>=2.0
+pydantic>=2.0
+pytest>=8.0

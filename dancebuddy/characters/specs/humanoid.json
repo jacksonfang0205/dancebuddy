@@ -1,0 +1,28 @@
+{
+  "name": "humanoid",
+  "display_name": "Humanoid control",
+  "category": "humanoid",
+  "description": "A simple cartoon person with human proportions: separate head, neck, torso, two-segment arms and legs. Used as the control character.",
+  "body_height_m": 1.0,
+  "parts_present": ["head", "neck", "torso", "upper arms", "forearms", "thighs", "shins"],
+  "parts_missing": [],
+  "channels": {
+    "root_bounce":     {"min": -0.15, "max": 0.3,  "rest": 0.0, "unit": "body heights", "description": "Whole character moves up (positive) or down.", "bind": {"node": "root", "prop": "location", "axis": 2, "factor": 1.0}},
+    "root_sway":       {"min": -0.3,  "max": 0.3,  "rest": 0.0, "unit": "body heights", "description": "Whole character slides toward its left (positive) or right.", "bind": {"node": "root", "prop": "location", "axis": 0, "factor": 1.0}},
+    "torso_lean_side": {"min": -30,   "max": 30,   "rest": 0.0, "unit": "degrees", "description": "Torso leans toward its left (positive) or right at the waist.", "bind": {"node": "torso", "prop": "rotation", "axis": 1, "factor": 1.0}},
+    "torso_lean_fwd":  {"min": -25,   "max": 45,   "rest": 0.0, "unit": "degrees", "description": "Torso bends forward (positive) or back at the waist.", "bind": {"node": "torso", "prop": "rotation", "axis": 0, "factor": 1.0}},
+    "torso_twist":     {"min": -50,   "max": 50,   "rest": 0.0, "unit": "degrees", "description": "Torso twists at the waist.", "bind": {"node": "torso", "prop": "rotation", "axis": 2, "factor": 1.0}},
+    "head_nod":        {"min": -30,   "max": 40,   "rest": 0.0, "unit": "degrees", "description": "Head nods forward (positive) or back.", "bind": {"node": "head", "prop": "rotation", "axis": 0, "factor": 1.0}},
+    "head_tilt":       {"min": -30,   "max": 30,   "rest": 0.0, "unit": "degrees", "description": "Head tilts toward its left (positive) or right.", "bind": {"node": "head", "prop": "rotation", "axis": 1, "factor": 1.0}},
+    "arm_L_raise":     {"min": 0,     "max": 175,  "rest": 10.0, "unit": "degrees", "description": "Left upper arm lifts sideways.", "bind": {"node": "arm_L", "prop": "rotation", "axis": 1, "factor": -1.0}},
+    "arm_L_forward":   {"min": -60,   "max": 90,   "rest": 0.0, "unit": "degrees", "description": "Left upper arm swings forward (positive) or back.", "bind": {"node": "arm_L", "prop": "rotation", "axis": 0, "factor": -1.0}},
+    "arm_L_elbow":     {"min": 0,     "max": 150,  "rest": 10.0, "unit": "degrees", "description": "Left elbow bend.", "bind": {"node": "forearm_L", "prop": "rotation", "axis": 0, "factor": -1.0}},
+    "arm_R_raise":     {"min": 0,     "max": 175,  "rest": 10.0, "unit": "degrees", "description": "Right upper arm lifts sideways.", "bind": {"node": "arm_R", "prop": "rotation", "axis": 1, "factor": 1.0}},
+    "arm_R_forward":   {"min": -60,   "max": 90,   "rest": 0.0, "unit": "degrees", "description": "Right upper arm swings forward (positive) or back.", "bind": {"node": "arm_R", "prop": "rotation", "axis": 0, "factor": -1.0}},
+    "arm_R_elbow":     {"min": 0,     "max": 150,  "rest": 10.0, "unit": "degrees", "description": "Right elbow bend.", "bind": {"node": "forearm_R", "prop": "rotation", "axis": 0, "factor": -1.0}},
+    "hip_L_flex":      {"min": -30,   "max": 100,  "rest": 0.0, "unit": "degrees", "description": "Left thigh swings forward (positive) or back.", "bind": {"node": "thigh_L", "prop": "rotation", "axis": 0, "factor": -1.0}},
+    "knee_L_bend":     {"min": 0,     "max": 140,  "rest": 0.0, "unit": "degrees", "description": "Left knee bend.", "bind": {"node": "shin_L", "prop": "rotation", "axis": 0, "factor": 1.0}},
+    "hip_R_flex":      {"min": -30,   "max": 100,  "rest": 0.0, "unit": "degrees", "description": "Right thigh swings forward (positive) or back.", "bind": {"node": "thigh_R", "prop": "rotation", "axis": 0, "factor": -1.0}},
+    "knee_R_bend":     {"min": 0,     "max": 140,  "rest": 0.0, "unit": "degrees", "description": "Right knee bend.", "bind": {"node": "shin_R", "prop": "rotation", "axis": 0, "factor": 1.0}}
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "capsule",
+  "display_name": "Capsule",
+  "category": "non-humanoid",
+  "description": "A pill-shaped character about 1 body height tall. Its head and torso are one rigid capsule with no neck and no waist. It has two thin arms with no elbows and two very short stubby legs.",
+  "body_height_m": 1.0,
+  "parts_present": ["capsule body (head and torso merged, rigid)", "left arm", "right arm", "left short leg", "right short leg"],
+  "parts_missing": ["neck", "waist", "elbows", "knees", "separate head"],
+  "channels": {
+    "root_bounce":   {"min": -0.1,  "max": 0.3,  "rest": 0.0, "unit": "body heights", "description": "Whole character moves up (positive) or down. Can be used for hops.", "bind": {"node": "root", "prop": "location", "axis": 2, "factor": 1.0}},
+    "root_sway":     {"min": -0.3,  "max": 0.3,  "rest": 0.0, "unit": "body heights", "description": "Whole character slides toward its left (positive) or right.", "bind": {"node": "root", "prop": "location", "axis": 0, "factor": 1.0}},
+    "body_tilt":     {"min": -20,   "max": 20,   "rest": 0.0, "unit": "degrees", "description": "Whole capsule rocks toward its left (positive) or right, pivoting between the legs.", "bind": {"node": "body", "prop": "rotation", "axis": 1, "factor": 1.0}},
+    "body_lean":     {"min": -15,   "max": 15,   "rest": 0.0, "unit": "degrees", "description": "Whole capsule rocks forward (positive) or back.", "bind": {"node": "body", "prop": "rotation", "axis": 0, "factor": 1.0}},
+    "body_twist":    {"min": -45,   "max": 45,   "rest": 0.0, "unit": "degrees", "description": "Whole capsule turns around its vertical axis.", "bind": {"node": "body", "prop": "rotation", "axis": 2, "factor": 1.0}},
+    "arm_L_raise":   {"min": 0,     "max": 170,  "rest": 10.0, "unit": "degrees", "description": "Left arm lifts sideways: 0 hanging down, 90 horizontal, 170 overhead.", "bind": {"node": "arm_L", "prop": "rotation", "axis": 1, "factor": -1.0}},
+    "arm_L_forward": {"min": -60,   "max": 90,   "rest": 0.0, "unit": "degrees", "description": "Left arm swings forward (positive) or back.", "bind": {"node": "arm_L", "prop": "rotation", "axis": 0, "factor": -1.0}},
+    "arm_R_raise":   {"min": 0,     "max": 170,  "rest": 10.0, "unit": "degrees", "description": "Right arm lifts sideways: 0 hanging down, 90 horizontal, 170 overhead.", "bind": {"node": "arm_R", "prop": "rotation", "axis": 1, "factor": 1.0}},
+    "arm_R_forward": {"min": -60,   "max": 90,   "rest": 0.0, "unit": "degrees", "description": "Right arm swings forward (positive) or back.", "bind": {"node": "arm_R", "prop": "rotation", "axis": 0, "factor": -1.0}},
+    "leg_L_lift":    {"min": 0,     "max": 35,   "rest": 0.0, "unit": "degrees", "description": "Left stubby leg kicks forward and up. Short range: the leg is tiny.", "bind": {"node": "leg_L", "prop": "rotation", "axis": 0, "factor": -1.0}},
+    "leg_R_lift":    {"min": 0,     "max": 35,   "rest": 0.0, "unit": "degrees", "description": "Right stubby leg kicks forward and up. Short range: the leg is tiny.", "bind": {"node": "leg_R", "prop": "rotation", "axis": 0, "factor": -1.0}}
+  }
+}

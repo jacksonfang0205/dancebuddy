@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+outputs/
+data/videos/*
+!data/videos/.gitkeep
+*.blend1
+.env
+models/*.task
