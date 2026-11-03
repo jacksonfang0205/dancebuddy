@@ -144,10 +144,12 @@ uv run python -m dancebuddy compose runs/my --systems copy
   socket that slides up the body side as the arm rises; arms always pass in front of the body and hair; the body
   outline never changes; arms lead and the body follows; hair trails), plus how human parts translate (no legs:
   kicks tilt the body, bounces lift and squash it). `tools/measure_reference_video.py` measures a reference video.
-- **Soft rig** (`blender/rig_soft.py`). Parts are read from the base-colour texture (blue = arms, dark brown =
-  hair). The arms are cut free from the body like sewn-on plush arms (body hole closed, arm root capped) and turn
-  rigidly around a joint inside the body, so the body never stretches. Root at the base (tilt / turn / lift /
-  squash), 3-bone B-bone arms, a 3-bone hair chain.
+- **Rig** (`blender/rig_soft.py`). Designed from the motion spec; the mesh is not edited. Root at the base
+  (tilt / turn / lift / squash); a hidden shoulder bone per arm slides the seam up the body side as the arm rises;
+  3 B-bones per arm, and the arm bends at its own root like a soft tube (its weight moves from the shoulder to the
+  arm over the first quarter of the arm); hair chains down the back and on both sides. Body and hair weights are
+  heat-diffusion weights computed on a closed voxel copy (generated meshes are open and in pieces) and copied back
+  by position; parts are found from the base-colour texture (blue = arms, dark brown = hair).
 - **Retarget** (`dancebuddy/retarget.py`). Arm directions come from the picture (monocular depth is unreliable, so
   the 3D depth is damped), kept in front of the hair and the body; the shoulder socket slides up as the arm rises;
   the body takes the dancer's turn, side tilt and lean, gentler; hair trails the body. Output: `<bone>.quat`,

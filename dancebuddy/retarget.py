@@ -30,7 +30,7 @@ HAIR = {"lag_s": 0.24, "follow": 0.6, "max_deg": 12.0, "share": (0.2, 0.5, 0.3)}
 STYLE = {"straight_above_deg": 120,         # raised arms straighten out (reference: arms up are straight)
          # the shoulder is a socket that slides up the side of the body as the arm rises (reference: a raised
          # arm starts beside the face, a hanging arm beside the chest), so raised hands get above the head
-         "socket_slide": 0.14,              # how far up it slides for a vertical arm, in body heights
+         "socket_slide_deg": 30.0,          # shoulder-bone turn that slides the socket up, for a vertical arm
          "socket_slide_from_deg": 80,
          "forearm_lag_s": 0.07,             # the end of the arm trails the upper arm a little
          "follow_tilt_deg": 6.0,            # the body leans toward the higher arm...
@@ -119,17 +119,17 @@ def raise_deg(u: np.ndarray) -> float:
     return float(np.degrees(np.arccos(np.clip(-u[2], -1, 1))))
 
 
-def socket_offset(u: np.ndarray, sign: int, height: float) -> np.ndarray:
-    """Where the shoulder socket slides to (armature axes, metres): up the body side, inward as the body narrows,
-    and a little forward so the arm stays in front of the hair."""
+def socket_turn(u: np.ndarray, sign: int) -> Rot:
+    """Turn of the hidden shoulder bone (armature space) that slides the arm's root up the side of the body as
+    the arm rises: it swings the root upward around a pivot inside the body."""
     a = raise_deg(_norm(u))
     k = float(np.clip((a - STYLE["socket_slide_from_deg"]) / (175 - STYLE["socket_slide_from_deg"]), 0, 1))
     k = k * k * (3 - 2 * k)
-    dz = STYLE["socket_slide"] * height * k
-    return np.array([-sign * 0.35 * dz, -0.2 * dz, dz])
+    return Rot.from_rotvec([0.0, -sign * np.radians(STYLE["socket_slide_deg"]) * k, 0.0])
 
 
-def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int) -> tuple[list, float]:
+def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int,
+             parent: Rot | None = None) -> tuple[list, float]:
     """Quaternions for a 3-bone soft arm whose upper part points along u and whose end points along f
     (character rest axes), plus its length factor. Applies the spec's constraints and style."""
     rest = {nm: M[nm][:, 1] for nm in names}
@@ -140,11 +140,11 @@ def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int)
     a = raise_deg(u)
     k = float(np.clip((a - STYLE["straight_above_deg"]) / 40.0, 0, 1))
     f = _norm((1 - k) * f + k * u)                   # raised arms are straight
-    ident = Rot.identity()
+    parent = parent if parent is not None else Rot.identity()
     c1 = _align(u, rest[names[0]])
     c2 = _align(_norm(u + f), c1.apply(rest[names[1]])) * c1
     c3 = _align(f, c2.apply(rest[names[2]])) * c2
-    quats = [_local(M[names[0]], ident, c1), _local(M[names[1]], c1, c2), _local(M[names[2]], c2, c3)]
+    quats = [_local(M[names[0]], parent, c1), _local(M[names[1]], c1, c2), _local(M[names[2]], c2, c3)]
     return quats, 1.0  # the arm keeps its length; the `stretch` channel is there for characters that need it
 
 
@@ -214,24 +214,29 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
         for nm in names:
             ch[f"{nm}.quat"] = []
             ch[f"{nm}.stretch"] = []
-        ch[f"{names[0]}.loc"] = []
-        height = float(rig.get("height_m", 1.4))
+        socket = f"arm_{side_name}_0" if f"arm_{side_name}_0" in M else None
+        if socket:
+            ch[f"{socket}.quat"] = []
         lag_f = int(round(STYLE["forearm_lag_s"] * fps))
         for i in range(n):
             Ti = T[i]
             j = max(0, i - lag_f)
             u = Ti.T @ upper[side_name][i]
             f = Ti.T @ fore[side_name][j]  # forearm from a moment ago: the soft end trails
-            quats, st = arm_pose(M, names, u, f, sign)
-            off = M[names[0]].T @ socket_offset(keep_clear(_norm(u), sign), sign, height)  # into the bone's frame
-            ch[f"{names[0]}.loc"].append([round(float(x), 4) for x in off])
+            c0 = socket_turn(keep_clear(_norm(u), sign), sign) if socket else Rot.identity()
+            if socket:
+                ch[f"{socket}.quat"].append(_local(M[socket], ident, c0))
+            quats, st = arm_pose(M, names, u, f, sign, parent=c0)
             for nm, q in zip(names, quats):
                 ch[f"{nm}.quat"].append(q)
                 ch[f"{nm}.stretch"].append(st)
 
     # ---- hair: trails the body (keeps where the body was a moment ago)
     lag = max(1, int(round(HAIR["lag_s"] * fps)))
-    hair = [nm for nm in ("hair_1", "hair_2", "hair_3") if nm in M]
+    hair_chains = [[nm for nm in M if nm.startswith(pre) and nm[len(pre):].isdigit()]
+                   for pre in ("hair_", "hair_L_", "hair_R_")]
+    hair_chains = [sorted(c, key=lambda x: int(x.rsplit("_", 1)[1])) for c in hair_chains if c]
+    hair = [nm for c in hair_chains for nm in c]
     if hair:
         rots = Rot.concatenate(body)
         for nm in hair:
@@ -244,11 +249,13 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
             ang = np.linalg.norm(delta)
             if ang > np.radians(HAIR["max_deg"]):
                 delta *= np.radians(HAIR["max_deg"]) / ang
-            parent = body[i]
-            for k, nm in enumerate(hair):
-                target = Rot.from_rotvec(delta * HAIR["share"][k]) * parent
-                ch[f"{nm}.quat"].append(_local(M[nm], parent, target))
-                parent = target
+            for chain in hair_chains:
+                parent = body[i]
+                share = HAIR["share"] if len(chain) == 3 else (0.4, 0.6)
+                for k, nm in enumerate(chain):
+                    target = Rot.from_rotvec(delta * share[k]) * parent
+                    ch[f"{nm}.quat"].append(_local(M[nm], parent, target))
+                    parent = target
 
     return {"fps": fps, "n_frames": n, "character": rig.get("name", "character"), "channels": ch,
             "retarget": {"body": BODY, "hair": HAIR, "style": STYLE}}

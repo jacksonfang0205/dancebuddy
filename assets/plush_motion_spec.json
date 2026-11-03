@@ -2,7 +2,6 @@
  "character": "plush",
  "version": 4,
  "what_this_is": "How this character moves: its pose vocabulary, and for each kind of pose how the parts move and how they connect. Learned by watching a reference video of the character dancing (Jimeng motion imitation; its hallucinated feet are ignored). These are qualitative rules, not numbers: a new dance has new angles and timings, but the character should still move and connect this way.",
-
  "body": {
   "parts": {
    "body": "one soft egg: head and torso are a single piece, the face is on its upper front",
@@ -17,20 +16,58 @@
    "hair_to_head": "the hair stays on the scalp; only its lower part swings"
   }
  },
-
  "poses": [
-  {"pose": "rest", "arms": "hang down and a little out from the sides, hands open", "body": "upright"},
-  {"pose": "arm out to the side (point)", "arms": "straight out sideways from the socket, hand open or pointing", "body": "upright or leaning slightly away"},
-  {"pose": "one arm raised (wave)", "arms": "goes up from a socket that has slid up beside the face; straight or curving over the head; hand may ball up", "body": "leans a little toward the raised arm, a moment after it moves"},
-  {"pose": "both arms overhead", "arms": "both straight up beside the face, in front of the hair, hands above the top of the head, often fists", "body": "upright, may stretch tall"},
-  {"pose": "arm across the chest (sweep / hug)", "arms": "curves around the front of the body, lying on it, hand reaching toward the other side", "body": "turns toward the sweep"},
-  {"pose": "hands together at the chest (clap)", "arms": "both bend forward and inward, hands meet in front of the chest", "body": "upright"},
-  {"pose": "hands to the face", "arms": "bend up in front of the body, hands cover the face or cheeks", "body": "upright, may squash a little"},
-  {"pose": "bent arm, elbow out", "arms": "the tube bends in its middle, the 'elbow' points out, hand comes back toward the body", "body": "follows the arm's direction"},
-  {"pose": "turn", "body": "the whole egg turns on its base; the face moves across the body", "hair": "swings out on the side it turns away from, then settles"},
-  {"pose": "bounce / jump", "body": "bobs up and down as a whole; squashes when low, stretches when high", "hair": "trails the bounce"}
+  {
+   "pose": "rest",
+   "arms": "hang down and a little out from the sides, hands open",
+   "body": "upright"
+  },
+  {
+   "pose": "arm out to the side (point)",
+   "arms": "straight out sideways from the socket, hand open or pointing",
+   "body": "upright or leaning slightly away"
+  },
+  {
+   "pose": "one arm raised (wave)",
+   "arms": "goes up from a socket that has slid up beside the face; straight or curving over the head; hand may ball up",
+   "body": "leans a little toward the raised arm, a moment after it moves"
+  },
+  {
+   "pose": "both arms overhead",
+   "arms": "both straight up beside the face, in front of the hair, hands above the top of the head, often fists",
+   "body": "upright, may stretch tall"
+  },
+  {
+   "pose": "arm across the chest (sweep / hug)",
+   "arms": "curves around the front of the body, lying on it, hand reaching toward the other side",
+   "body": "turns toward the sweep"
+  },
+  {
+   "pose": "hands together at the chest (clap)",
+   "arms": "both bend forward and inward, hands meet in front of the chest",
+   "body": "upright"
+  },
+  {
+   "pose": "hands to the face",
+   "arms": "bend up in front of the body, hands cover the face or cheeks",
+   "body": "upright, may squash a little"
+  },
+  {
+   "pose": "bent arm, elbow out",
+   "arms": "the tube bends in its middle, the 'elbow' points out, hand comes back toward the body",
+   "body": "follows the arm's direction"
+  },
+  {
+   "pose": "turn",
+   "body": "the whole egg turns on its base; the face moves across the body",
+   "hair": "swings out on the side it turns away from, then settles"
+  },
+  {
+   "pose": "bounce / jump",
+   "body": "bobs up and down as a whole; squashes when low, stretches when high",
+   "hair": "trails the bounce"
+  }
  ],
-
  "dynamics": [
   "arms lead and carry the dance; the body supports them",
   "the body follows the arms a moment later (leans toward the higher or moving arm)",
@@ -38,7 +75,6 @@
   "arms move in quick moves with short holds in between",
   "the arms bend as smooth curves; raised arms straighten"
  ],
-
  "from_human": {
   "upper_arms_and_forearms": "copy their direction as seen in the picture; the forearm becomes the bend of the soft arm",
   "torso": "copy turn, side tilt and lean, gentler than the dancer",
@@ -46,16 +82,15 @@
   "legs, steps, kicks": "no legs: a kick tilts the body away from the leg; steps and knee bends become bobs with squash; a jump becomes a hop",
   "hips": "hip sway becomes a sideways shift and a small tilt"
  },
-
  "rig": {
-  "file": "plush_soft.blend, made by blender/rig_soft.py from plush.blend",
-  "how": "the arms are cut free from the body along the blue/tan border; the hole in the body is closed with body-coloured faces and the arm root is capped; each arm is a rigid 3-bone soft chain turning around a joint inside the body; root bone at the base of the body; 3-bone hair chain",
-  "driven_by": "dancebuddy/retarget.py: arm directions from the picture (depth from the 3D estimate, damped), socket slide, body turn/tilt/lean, bounce, hair lag"
+  "file": "plush_soft.blend, made by blender/rig_soft.py from plush.blend (the mesh is not edited)",
+  "how": "designed from the connections above: root at the base of the body; a hidden shoulder bone per arm whose turn slides the seam up the body side; 3 B-bones per arm, with the weight moving from the shoulder to the arm over the first quarter of the arm so the arm bends at its own root like a soft tube; a narrow band of body around the seam follows the shoulder; hair chains down the back and on both sides. Body and hair weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
+  "driven_by": "dancebuddy/retarget.py"
  },
-
  "known_gaps": [
-  "where the arm used to be glued, the texture has a baked shadow, so a darker patch shows when the arm moves away",
-  "an arm reaching over the head toward the other side can pass in front of the face",
+  "the texture has a shadow baked under each arm, which shows as a darker patch on the body side when the arm moves away",
+  "a raised arm gets thinner at its root",
+  "hands to the face and an arm across the whole chest do not reach as far as in the reference",
   "hands do not ball up into fists; no facial expression"
  ]
 }
