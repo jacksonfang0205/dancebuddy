@@ -163,3 +163,31 @@ def test_unit_report_names_the_failing_units(synth):
     bad = {u["unit_id"] for u in res["units"]}
     assert bad and all(u["problems"] for u in res["units"])
     assert bad <= {u["id"] for u in score["units"]}
+
+
+def test_copy_raises_the_arm_the_dancer_raises(synth):
+    import numpy as np
+    from scipy.spatial.transform import Rotation as Rot
+
+    from dancebuddy.perception import L_EL, L_SH, L_WR
+    from dancebuddy.retarget import retarget
+
+    kp, _ = synth
+    kp = {**kp, "world": kp["world"].copy()}
+    w = kp["world"]
+    half = len(w) // 2
+    for i in range(len(w)):  # MediaPipe y points down: first half arm hanging, second half arm straight up
+        d = 1 if i < half else -1
+        w[i, L_EL] = w[i, L_SH] + [0, 0.28 * d, 0]
+        w[i, L_WR] = w[i, L_SH] + [0, 0.55 * d, 0]
+    rig = json.loads((ROOT / "assets" / "plush_soft_rig.json").read_text())
+    curves = retarget(kp, rig)
+    assert all(len(v) == curves["n_frames"] for v in curves["channels"].values())
+    q = np.array(curves["channels"]["arm_L_1.quat"])
+    assert np.allclose(np.linalg.norm(q, axis=1), 1, atol=1e-3)
+    bone = next(b for b in rig["bones"] if b["name"] == "arm_L_1")
+    M = Rot.from_matrix(np.array(bone["matrix"]))
+    direction = (M * Rot.from_quat(q[:, [1, 2, 3, 0]])).apply([0, 1, 0])  # bone axis in armature space
+    down, up = direction[half // 2], direction[half + half // 2]
+    assert down[2] < -0.8 and up[2] > 0.5  # hanging vs raised
+    assert up[1] < 0  # raised arm stays in front of the hair

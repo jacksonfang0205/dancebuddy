@@ -125,6 +125,31 @@ Results go to `agent_nocard/` and `agent_norevise/`, and `eval` picks them up au
 - **Caching** (`llm.py`). Every model call is cached by its exact request under `.cache/llm/`, so re-running a step is
   free and deterministic. Commit the cache for the example clip and the quick start replays the agent without a key.
 
+## Copying a dancer onto a character (motion spec + soft rig)
+
+The goal is a character that dances *like the dancer*, so the main path now copies every move the body can do and
+translates only the rest:
+
+```bash
+uv run python blender/rig_soft.py -- --blend assets/plush.blend --out assets/plush_soft   # once per character
+uv run python -m dancebuddy perceive my_dance.mp4 runs/my
+uv run python -m dancebuddy copy runs/my --char assets/plush_soft
+uv run python -m dancebuddy render runs/my --systems copy --char assets/plush_soft --engine cycles
+uv run python -m dancebuddy compose runs/my --systems copy
+```
+
+- **Motion spec** (`assets/plush_motion_spec.json`). How this character moves: what its body *can do* (ranges) and
+  how it *tends to* move (style: arms lead, the body follows ~0.5 s later, hair trails ~0.24 s, squash low /
+  stretch high), plus how human parts translate (no legs: kicks tilt the body, bounces lift and squash it).
+  The style numbers were measured from a reference video of the character dancing with
+  `tools/measure_reference_video.py` (colour segmentation); they are typical values, not limits.
+- **Soft rig** (`blender/rig_soft.py`). Parts are read from the base-colour texture (blue = arms, dark brown =
+  hair). Root at the base (tilt / turn / lift / squash), 3-bone B-bone arms that bend smoothly, a 3-bone hair chain.
+  Weights are smoothed across part borders so nothing tears.
+- **Retarget** (`dancebuddy/retarget.py`). Arms follow the dancer's upper-arm and forearm directions in the torso
+  frame (kept in front of the hair and the body); the body takes the dancer's turn, side tilt and lean, scaled to
+  the spec; hair keeps part of the body's orientation from 0.24 s earlier. Output: `<bone>.quat` channels.
+
 ## Metrics (`eval`)
 
 | Metric | Meaning |
@@ -164,6 +189,7 @@ dancebuddy/        perception, signals, beats, primitives, checks, video_metrics
                    CLI (__main__.py)
 blender/           make_capsule.py, render_curves.py, scene_utils.py (run with bpy or blender -b -P)
 examples/          handwritten plans for the synthetic dancer (`_follow.json` uses the follow primitive)
+tools/             measure_reference_video.py (motion style from a reference video)
 tests/             fast tests with a synthetic dancer and a scripted model
 assets/            generated character files (capsule.blend, rig, views, card)
 runs/              one directory per clip

@@ -7,6 +7,7 @@ Channel -> pose bone mapping (bones point up, so bone-local Y is the bone axis):
   lean  -> rotation X      twist -> rotation Y      sway -> rotation Z
   root.lift -> location Y (along the root bone = world up)
   root.squash -> scale (Y shrinks, X/Z grow to keep volume)
+  <bone>.quat -> rotation quaternion [w, x, y, z] in the bone's rest frame (overrides the Euler channels)
 """
 
 import argparse
@@ -58,6 +59,7 @@ def main():
     for f in range(n):
         for pb in pbones:
             pb.rotation_euler = (0, 0, 0)
+            pb.rotation_quaternion = (1, 0, 0, 0)
             pb.location = (0, 0, 0)
             pb.scale = (1, 1, 1)
         for name, vals in curves["channels"].items():
@@ -66,7 +68,10 @@ def main():
                 continue
             pb = pbones[bone]
             v = vals[f]
-            if ch in AXIS:
+            if ch == "quat":  # full rotation (w, x, y, z) in the bone's rest frame, e.g. from retarget.py
+                pb.rotation_mode = "QUATERNION"
+                pb.rotation_quaternion = v
+            elif ch in AXIS:
                 r = list(pb.rotation_euler)
                 r[AXIS[ch]] = math.radians(v)
                 pb.rotation_euler = r
@@ -76,7 +81,8 @@ def main():
                 s = max(0.3, 1 - v)
                 pb.scale = (1 / math.sqrt(s), s, 1 / math.sqrt(s))
         for pb in pbones:
-            pb.keyframe_insert("rotation_euler", frame=f + 1)
+            pb.keyframe_insert("rotation_quaternion" if pb.rotation_mode == "QUATERNION" else "rotation_euler",
+                               frame=f + 1)
             pb.keyframe_insert("location", frame=f + 1)
             pb.keyframe_insert("scale", frame=f + 1)
 

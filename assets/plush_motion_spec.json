@@ -1,62 +1,120 @@
 {
  "character": "plush",
- "version": 2,
- "source": "Learned from a reference video of this character dancing (Jimeng motion imitation, 7.4 s, 25 fps), measured per frame by colour segmentation (blue arms, tan body, brown hair). The feet in that video are hallucinated and ignored. Numbers are what the character did there; they describe how it should move, independent of any rig.",
+ "version": 3,
+ "source": "How this character moves. 'can_do' is what its body allows; 'tends_to' is its movement style. Style numbers were first measured from one reference video of the character dancing (Jimeng motion imitation, colour segmentation; hallucinated feet ignored). They are typical values, not limits: any dance may push past them as long as the motion stays within 'can_do' and keeps the style.",
  "conventions": {
   "view": "front; left/right are the character's own (its left arm is on the right of the screen)",
   "arm_angle": "deg between the arm (shoulder to hand) and straight down: 0 = hanging, 90 = straight out sideways, 180 = straight up; negative = swung across the front of the body",
   "lengths": "in body heights",
   "tilt": "deg of the body's long axis from vertical, + = toward the character's left"
  },
-
  "parts": {
   "arms": {
    "role": "primary: they carry the choreography. Arm angular speed is about 10x the body's.",
    "nature": "soft tubes that bend smoothly along their length (no sharp elbow); mitten hands keep their shape and can open or ball up",
-   "range": {"raise_deg": [0, 180], "across_body_deg": [-140, 0]},
-   "poses_seen": [
-    "hanging relaxed beside the body",
-    "pointing straight out sideways",
-    "straight up overhead (both arms together)",
-    "one arm up and bent over the head (wave)",
-    "swept across the chest (hug / sweep)",
-    "hands clasped at the chest",
-    "both hands covering the face"
-   ],
-   "dynamics": {
-    "big_move": "100-170 deg in 0.3-0.4 s, then a short hold",
-    "speed_deg_per_s": {"median": 60, "p95": 700}
+   "can_do": {
+    "raise_deg": [
+     0,
+     180
+    ],
+    "across_body_deg": [
+     -140,
+     0
+    ],
+    "bend": "anywhere along the arm, up to about 120 deg in total",
+    "poses_for_example": [
+     "hanging relaxed beside the body",
+     "pointing straight out sideways",
+     "straight up overhead (both arms together)",
+     "one arm up and bent over the head (wave)",
+     "swept across the chest (hug / sweep)",
+     "hands clasped at the chest",
+     "both hands covering the face"
+    ]
    },
-   "usage": {"share_of_time_above_horizontal": 0.2, "share_of_time_across_body": 0.26,
-             "symmetry": "mostly asymmetric; the two arms move independently"}
+   "tends_to": {
+    "big_move": "100-170 deg in 0.3-0.4 s, then a short hold",
+    "speed_deg_per_s": {
+     "median": 60,
+     "p95": 700
+    },
+    "usage_in_reference": {
+     "share_of_time_above_horizontal": 0.2,
+     "share_of_time_across_body": 0.26,
+     "symmetry": "mostly asymmetric; the two arms move independently"
+    }
+   },
+   "constraints": [
+    "raised arms pass in front of the hair, opening slightly outward",
+    "arms that cross the body pass in front of it",
+    "never far behind the body"
+   ]
   },
   "body": {
    "role": "secondary: supports the arms; it tilts, turns and bobs as one soft egg (head and torso are one piece) and barely bends",
-   "tilt_deg": {"typical": [0, 8], "peak": 16, "speed_p95_deg_per_s": 60, "pivot": "base of the body"},
-   "turn_deg": {"held": 15, "brief_peak": 40, "notes": "estimated from how far the face moves across the body"},
-   "bob": {"range": [-0.05, 0.07], "notes": "small, continuous; no large hops"},
-   "squash_stretch": {"height_range": [0.9, 1.08],
-                      "rule": "squashes when low, stretches when high (correlation 0.68)"},
-   "shift_sideways": {"range": [-0.08, 0.12], "notes": "weight shifts, slow"}
+   "can_do": {
+    "tilt_deg": 25,
+    "turn_deg": 60,
+    "bend": "slight (the head and torso are one piece)",
+    "squash_stretch": [
+     0.85,
+     1.1
+    ],
+    "hop_m": 0.15
+   },
+   "tends_to": {
+    "tilt_deg": {
+     "typical": [
+      0,
+      8
+     ],
+     "peak": 16,
+     "speed_p95_deg_per_s": 60,
+     "pivot": "base of the body"
+    },
+    "turn_deg": {
+     "held": 15,
+     "brief_peak": 40,
+     "notes": "estimated from how far the face moves across the body"
+    },
+    "bob": {
+     "range": [
+      -0.05,
+      0.07
+     ],
+     "notes": "small, continuous; no large hops"
+    },
+    "squash_stretch": {
+     "height_range": [
+      0.9,
+      1.08
+     ],
+     "rule": "squashes when low, stretches when high (correlation 0.68)"
+    },
+    "shift_sideways": {
+     "range": [
+      -0.08,
+      0.12
+     ],
+     "notes": "weight shifts, slow"
+    }
+   }
   },
   "hair": {
    "role": "secondary motion only, never driven directly",
-   "lag_s": 0.24,
-   "swing": 0.3,
-   "notes": "swings out on fast tilts and turns and settles back; makes the motion read as soft"
+   "tends_to": {
+    "lag_s": 0.24,
+    "swing": 0.3
+   },
+   "notes": "swings out on fast tilts and turns and settles back; makes the motion read as soft",
+   "constraints": [
+    "keep the scalp still; the swing grows toward the ends of the hair"
+   ]
   },
   "face": {
    "notes": "expression changes with energy (smile, open mouth) in the reference. Out of scope for v1."
   }
  },
-
- "coordination": [
-  "arms lead, body follows: the body tends to lean toward the raised or moving arm about 0.5 s later (correlation 0.4)",
-  "hair follows the body about 0.24 s later",
-  "a fast sweep of an arm across the body comes with a body turn of 20-40 deg in the same direction",
-  "squash on the way down, stretch on the way up"
- ],
-
  "from_human": {
   "upper_arms": "copy the dancer's upper-arm direction, full range including overhead and across the body",
   "forearms": "fold into the bend of the soft arm (hand ends near where the dancer's hand is, relative to the body)",
@@ -65,17 +123,33 @@
   "legs_steps_kicks": "no legs: in the reference a kick became a body tilt of ~14 deg plus a hair swing; steps become small bobs with squash; weight shifts become sideways shifts",
   "hips": "hip sway becomes sideways shift plus a small tilt"
  },
-
- "rig_requirements": [
-  "arms: a chain of 3+ bones (or bendy bones / spline IK) from shoulder to hand, weighted so the arm stays round while going overhead, across the chest and to the face",
-  "shoulders: rotate freely around the attachment point; overhead arms pass in front of the hair",
-  "body: pivot at the base for tilt; a whole-body turn of at least +-40 deg; volume-preserving squash/stretch",
-  "hair: 2-3 spring (jiggle) bones that lag the body by ~0.25 s",
-  "no leg bones"
- ],
  "current_rig_gaps": [
-  "arms are a single bone each; the mesh flattens above ~60 deg raise and cannot bend or cross the body cleanly",
-  "no hair dynamics",
-  "twist on the lower spine bone shears the base"
- ]
+  "raised arms are short next to the big hair, so overhead poses read less clearly than in the reference",
+  "an arm reaching over the head toward the other side passes in front of the face",
+  "no facial expression"
+ ],
+ "coordination": [
+  "arms lead, body follows: the body tends to lean toward the raised or moving arm about 0.5 s later (correlation 0.4)",
+  "hair follows the body about 0.24 s later",
+  "a fast sweep of an arm across the body comes with a body turn of 20-40 deg in the same direction",
+  "squash on the way down, stretch on the way up"
+ ],
+ "rig": {
+  "file": "plush_soft.blend (blender/rig_soft.py, from plush.blend)",
+  "bones": {
+   "root": "pivot at the base: body tilt / turn / lean, lift, squash",
+   "body_lower, body_upper": "slight bend",
+   "arm_L_1..3, arm_R_1..3": "soft arm chains (B-bones), parented to body_lower",
+   "hair_1..3": "spring chain down the back, parented to body_upper"
+  },
+  "signs_checked_by_render": {
+   "arm_L_1.sway +": "raises the left arm",
+   "arm_R_1.sway -": "raises the right arm",
+   "arm_L_1.lean +": "swings the left arm forward (in front of the body)",
+   "arm_R_1.lean -": "swings the right arm forward",
+   "root.sway +": "tilts toward the character's right",
+   "root.twist": "rigid whole-body turn"
+  },
+  "driven_by": "dancebuddy/retarget.py (quaternions per bone, from the dancer's torso frame and arm directions)"
+ }
 }

@@ -140,6 +140,19 @@ def cmd_baseline(a):
     print(f"pose-copy baseline -> {out}")
 
 
+def cmd_copy(a):
+    """Copy the dancer onto the character frame by frame, following its motion spec (retarget.py)."""
+    from .perception import load_keypoints
+    from .retarget import retarget
+    run_dir = Path(a.run)
+    rig = load(Path(str(a.char) + "_rig.json"))
+    curves = retarget(load_keypoints(run_dir / "keypoints.npz"), rig)
+    out = run_dir / a.name
+    out.mkdir(exist_ok=True)
+    (out / "curves.json").write_text(json.dumps(curves))
+    print(f"copy: {curves['n_frames']} frames, {len(curves['channels'])} channels -> {out}")
+
+
 def cmd_apply(a):
     """Compile a plan you wrote yourself (no LLM) and check it."""
     from .checks import run_checks
@@ -301,6 +314,7 @@ def main(argv=None):
     s.add_argument("--no-revise", action="store_true", help="ablation: one attempt, no revision")
     s = add("baseline", cmd_baseline, "run"); char_opt(s)
     s = add("apply", cmd_apply, "run", "plan"); char_opt(s); s.add_argument("--name", default="handwritten")
+    s = add("copy", cmd_copy, "run"); char_opt(s); s.add_argument("--name", default="copy")
     s = add("render", cmd_render, "run"); char_opt(s); render_opts(s)
     s.add_argument("--systems", nargs="+", default=["agent", "posecopy"]); s.add_argument("--max-frames", type=int, default=0)
     s = add("compose", cmd_compose, "run"); s.add_argument("--systems", nargs="+", default=["agent", "posecopy"])
