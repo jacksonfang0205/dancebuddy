@@ -138,6 +138,18 @@ def main():
     body.parent = None
     body.vertex_groups.clear()
     me = body.data
+    # Generated meshes are split along UV seams. Join vertices at the same position, so each point of the
+    # surface gets one part label and one set of weights (otherwise seams crack open when a limb moves).
+    # UVs live on face corners, so the texture is unaffected.
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    before = len(bm.verts)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    print(f"merged seam vertices: {before} -> {len(me.vertices)}")
 
     co, vuv = mesh_arrays(me)
     H, S, V = vertex_hsv(body, vuv)
@@ -206,6 +218,8 @@ def main():
             b.bbone_segments = 6
             b.parent = prev if prev else eb["body_lower"]
             b.use_connect = prev is not None
+            if prev is not None:
+                b.inherit_scale = "NONE"  # each segment stretches on its own (see the `stretch` channel)
             prev = b
     prev = None
     for i in range(3):
@@ -228,24 +242,37 @@ def main():
     Wb = chain_weights(zs, [0, z_low / height, z_mid / height, 1.0], blend=0.2)
     for j, name in enumerate(("root", "body_lower", "body_upper")):
         W[:, idx[name]] = Wb[:, j]
-    # arms: along the chain; the first part blends with the body so the shoulder stretches instead of tearing
+    # arms: a capsule field around each arm's centre line, so the weight depends only on where a point is
+    # (two points that are close always move together, whatever their part label or mesh piece)
+    arm_w = {}
     for side, d in arms.items():
-        m = d["mask"]
         pts = np.array([list(v) for v in d["pts"]])
-        seg = np.cumsum([0] + [np.linalg.norm(pts[i + 1] - pts[i]) for i in range(3)])
-        s = np.clip((co - d["shoulder"]) @ d["axis"], 0, None)
-        Wa = chain_weights(s / seg[-1], list(seg / seg[-1]), blend=0.15)
-        into = np.clip(s / (0.15 * seg[-1]), 0, 1)  # 0 at the shoulder joint, 1 a little way out
+        lens = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+        seg = np.r_[0, np.cumsum(lens)]
+        best_d = np.full(n, np.inf)
+        s_par = np.zeros(n)
         for i in range(3):
-            W[m, idx[f"arm_{side}_{i + 1}"]] = Wa[m, i] * into[m]
-        for name in ("root", "body_lower", "body_upper"):
-            W[m, idx[name]] *= (1 - into[m])
-        # body vertices right around the shoulder follow the arm a little
-        dist = np.linalg.norm(co - d["shoulder"], axis=1)
-        near = is_body & (dist < 0.12 * height)
-        f = 0.5 * (1 - dist[near] / (0.12 * height))
-        W[near] *= (1 - f)[:, None]
-        W[near, idx[f"arm_{side}_1"]] += f
+            ab = pts[i + 1] - pts[i]
+            t = np.clip((co - pts[i]) @ ab / (ab @ ab), 0, 1)
+            dist = np.linalg.norm(co - (pts[i] + t[:, None] * ab), axis=1)
+            take = dist < best_d
+            best_d[take], s_par[take] = dist[take], (seg[i] + t[take] * lens[i]) / seg[-1]
+        r = float(np.median(best_d[d["mask"]]))
+        s_raw = (co - pts[0]) @ ((pts[1] - pts[0]) / lens[0])          # distance past the shoulder joint
+        ramp = np.clip(s_raw / (0.12 * seg[-1]), 0, 1)
+        radial = 1 - np.clip((best_d - 1.15 * r) / (0.55 * r), 0, 1)
+        w = ramp * radial
+        w[d["mask"]] = np.maximum(w[d["mask"]], ramp[d["mask"]])
+        w[is_hair] = 0
+        arm_w[side] = (w, chain_weights(s_par, list(seg / seg[-1]), blend=0.15))
+        print(f"arm_{side}: radius {r:.3f}, {int((w > 0.5).sum())} points follow it")
+    total = sum(w for w, _ in arm_w.values())
+    scale = np.where(total > 1, 1 / np.maximum(total, 1e-9), 1)
+    for name in ("root", "body_lower", "body_upper"):
+        W[:, idx[name]] *= 1 - total * scale
+    for side, (w, Wa) in arm_w.items():
+        for i in range(3):
+            W[:, idx[f"arm_{side}_{i + 1}"]] = w * scale * Wa[:, i]
     # hair: the scalp stays on the head, the rest hangs on the hair chain (by height from the crown down)
     hz = np.array([v.z for v in hair_pts])
     s_h = (hz[0] + 0.12 * height - co[:, 2]) / (hz[0] + 0.12 * height - hz[-1])  # 0 at the crown, 1 at the bottom
@@ -257,17 +284,14 @@ def main():
     W[hm, idx["body_upper"]] = Wh[hm, 0]
     for i in range(3):
         W[hm, idx[f"hair_{i + 1}"]] = Wh[hm, i + 1]
-    # smooth across part borders (arms/body, hair/body) so nothing tears
-    edges = merged_neighbours(co, me)
-    border = np.zeros(n, bool)
-    lab = np.where(is_arm, 1, np.where(is_hair, 2, 0))
-    border[edges[lab[edges[:, 0]] != lab[edges[:, 1]]].ravel()] = True
-    from scipy.sparse import coo_matrix
-    A = coo_matrix((np.ones(len(edges) * 2), (np.r_[edges[:, 0], edges[:, 1]], np.r_[edges[:, 1], edges[:, 0]])),
-                   shape=(n, n)).tocsr()
-    for _ in range(3):  # grow the border region a few rings
-        border = border | (A @ border.astype(float) > 0)
-    W = smooth_weights(W, edges, border, iters=15)
+    # smooth in space (not along mesh edges: the mesh is in many pieces), then keep hair off the arms
+    from scipy.spatial import cKDTree
+    tree = cKDTree(co)
+    nbrs = tree.query_ball_point(co, r=0.025 * height)
+    for _ in range(2):
+        W = np.array([W[nb].mean(0) for nb in nbrs])
+    arm_cols = [idx[nm] for nm in bone_names if nm.startswith("arm_")]
+    W[np.ix_(is_hair, arm_cols)] = 0
     W /= np.maximum(W.sum(1, keepdims=True), 1e-9)
 
     groups = {nm: body.vertex_groups.new(name=nm) for nm in bone_names}

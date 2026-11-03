@@ -7,6 +7,7 @@ Channel -> pose bone mapping (bones point up, so bone-local Y is the bone axis):
   lean  -> rotation X      twist -> rotation Y      sway -> rotation Z
   root.lift -> location Y (along the root bone = world up)
   root.squash -> scale (Y shrinks, X/Z grow to keep volume)
+  <bone>.stretch -> length factor along the bone (volume kept)
   <bone>.quat -> rotation quaternion [w, x, y, z] in the bone's rest frame (overrides the Euler channels)
 """
 
@@ -77,6 +78,9 @@ def main():
                 pb.rotation_euler = r
             elif ch == "lift":
                 pb.location = (0, v, 0)
+            elif ch == "stretch":  # lengthen a bone along its axis, keeping its volume (soft limbs)
+                st = max(0.3, v)
+                pb.scale = (1 / math.sqrt(st), st, 1 / math.sqrt(st))
             elif ch == "squash":
                 s = max(0.3, 1 - v)
                 pb.scale = (1 / math.sqrt(s), s, 1 / math.sqrt(s))

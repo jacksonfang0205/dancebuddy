@@ -24,6 +24,12 @@ BODY = {"turn_gain": 0.7, "turn_max": 35.0, "side_gain": 0.7, "side_max": 14.0, 
         "kick_tilt_deg_per_torso": 20.0, "kick_tilt_max": 10.0,
         "lift_per_torso": 0.25, "lift_max": 0.12, "squash_per_torso": 0.2, "squash_max": 0.06}
 HAIR = {"lag_s": 0.24, "follow": 0.6, "max_deg": 12.0, "share": (0.2, 0.5, 0.3)}
+# style from the spec's "tends_to": arms lead and the body follows, soft arms, squash low / stretch high
+STYLE = {"arm_stretch_overhead": 0.25,      # a raised arm lengthens by up to 25 % (soft tube)
+         "forearm_lag_s": 0.07,             # the end of the arm trails the upper arm a little
+         "follow_tilt_deg": 6.0,            # the body leans toward the higher arm...
+         "follow_delay_s": 0.4,             # ...about this long after the arms move
+         "stretch_per_torso": 0.03, "stretch_max": 0.05}   # per torso length per second of rising
 
 
 def _norm(v):
@@ -105,11 +111,23 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
     side = np.clip(side, -BODY["side_max"], BODY["side_max"])
     lean = np.clip(smooth(np.array(lean), 2.0) * BODY["lean_gain"], -BODY["lean_max"], BODY["lean_max"])
     turn = np.clip(turn * BODY["turn_gain"], -BODY["turn_max"], BODY["turn_max"])
+
+    # arms lead, the body follows: lean toward the higher arm a moment later
+    arm_up = {}
+    for side_name, (sh, el) in (("L", (L_SH, L_EL)), ("R", (R_SH, R_EL))):
+        arm_up[side_name] = np.array([_norm(T[i].T @ (w[i, el] - w[i, sh]))[2] for i in range(n)])
+    delay = int(round(STYLE["follow_delay_s"] * fps))
+    diff = arm_up["L"] - arm_up["R"]
+    follow = np.r_[np.full(delay, diff[0]), diff[:n - delay]] if delay < n else np.zeros(n)
+    side = np.clip(side + STYLE["follow_tilt_deg"] * smooth(follow, 3.0), -BODY["side_max"], BODY["side_max"])
     body = [Rot.from_euler("z", turn[i], degrees=True) * Rot.from_euler("y", side[i], degrees=True)
             * Rot.from_euler("x", lean[i], degrees=True) for i in range(n)]
 
     lift = np.clip(bounce * BODY["lift_per_torso"], 0, BODY["lift_max"])
     squash = np.clip(-bounce * BODY["squash_per_torso"], 0, BODY["squash_max"])
+    # stretch on the way up (negative squash), squash on the way down
+    rising = np.gradient(smooth(bounce, 1.5)) * fps  # torso lengths per second
+    squash = squash - np.clip(rising * STYLE["stretch_per_torso"], 0, STYLE["stretch_max"])
 
     ch: dict[str, list] = {k: [] for k in ["root.quat", "root.lift", "root.squash"]}
     ident = Rot.identity()
@@ -125,10 +143,13 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
             continue
         for nm in names:
             ch[f"{nm}.quat"] = []
+            ch[f"{nm}.stretch"] = []
+        lag_f = int(round(STYLE["forearm_lag_s"] * fps))
         for i in range(n):
             Ti = T[i]
+            j = max(0, i - lag_f)
             u = keep_clear(_norm(Ti.T @ (w[i, el] - w[i, sh])), sign)
-            f = _norm(Ti.T @ (w[i, wr] - w[i, el]))
+            f = _norm(Ti.T @ (w[j, wr] - w[j, el]))  # forearm from a moment ago: the soft end trails
             if f[1] > 0.3:
                 f = _norm(f - np.array([0, f[1] - 0.3, 0]))
             c1 = _align(u, rest_dir[names[0]])
@@ -138,6 +159,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
             ch[f"{names[0]}.quat"].append(_local(M[names[0]], ident, c1))
             ch[f"{names[1]}.quat"].append(_local(M[names[1]], c1, c2))
             ch[f"{names[2]}.quat"].append(_local(M[names[2]], c2, c3))
+            st = round(1 + STYLE["arm_stretch_overhead"] * max(0.0, float(u[2])), 4)
+            for nm in names:
+                ch[f"{nm}.stretch"].append(st)
 
     # ---- hair: trails the body (keeps where the body was a moment ago)
     lag = max(1, int(round(HAIR["lag_s"] * fps)))
@@ -161,4 +185,4 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
                 parent = target
 
     return {"fps": fps, "n_frames": n, "character": rig.get("name", "character"), "channels": ch,
-            "retarget": {"body": BODY, "hair": HAIR}}
+            "retarget": {"body": BODY, "hair": HAIR, "style": STYLE}}
