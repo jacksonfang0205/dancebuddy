@@ -317,9 +317,9 @@ def main():
         # distance from the seam, measured along the arm: 0 at the arm's innermost points
         s0 = np.percentile(s_par[m], 3)
         s_rel = np.clip((s_par - s0) / (1 - s0 + 1e-9), 0, 1)
-        on = np.clip(s_rel / 0.25, 0, 1)
+        on = np.clip(s_rel / 0.35, 0, 1)
         on = on * on * (3 - 2 * on)
-        Wa = chain_weights(s_rel, list((seg / seg[-1])), blend=0.15)
+        Wa = chain_weights(s_rel, list((seg / seg[-1])), blend=0.4)  # wide: the arm bends as one curve
         W[m] = 0
         W[m, col[f"arm_{side}_0"]] = 1 - on[m]
         for i in range(3):
