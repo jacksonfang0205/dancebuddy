@@ -138,17 +138,20 @@ uv run python -m dancebuddy render runs/my --systems copy --char assets/plush_so
 uv run python -m dancebuddy compose runs/my --systems copy
 ```
 
-- **Motion spec** (`assets/plush_motion_spec.json`). How this character moves: what its body *can do* (ranges) and
-  how it *tends to* move (style: arms lead, the body follows ~0.5 s later, hair trails ~0.24 s, squash low /
-  stretch high), plus how human parts translate (no legs: kicks tilt the body, bounces lift and squash it).
-  The style numbers were measured from a reference video of the character dancing with
-  `tools/measure_reference_video.py` (colour segmentation); they are typical values, not limits.
+- **Motion spec** (`assets/plush_motion_spec.json`). How this character moves, as qualitative rules learned by
+  watching a reference video of it dancing: its pose vocabulary (rest, point, wave, both arms up, sweep across the
+  chest, clap, hands to face, turn, bounce) and, for each, how the parts move and connect (the shoulder is a
+  socket that slides up the body side as the arm rises; arms always pass in front of the body and hair; the body
+  outline never changes; arms lead and the body follows; hair trails), plus how human parts translate (no legs:
+  kicks tilt the body, bounces lift and squash it). `tools/measure_reference_video.py` measures a reference video.
 - **Soft rig** (`blender/rig_soft.py`). Parts are read from the base-colour texture (blue = arms, dark brown =
-  hair). Root at the base (tilt / turn / lift / squash), 3-bone B-bone arms that bend smoothly, a 3-bone hair chain.
-  Weights are smoothed across part borders so nothing tears.
-- **Retarget** (`dancebuddy/retarget.py`). Arms follow the dancer's upper-arm and forearm directions in the torso
-  frame (kept in front of the hair and the body); the body takes the dancer's turn, side tilt and lean, scaled to
-  the spec; hair keeps part of the body's orientation from 0.24 s earlier. Output: `<bone>.quat` channels.
+  hair). The arms are cut free from the body like sewn-on plush arms (body hole closed, arm root capped) and turn
+  rigidly around a joint inside the body, so the body never stretches. Root at the base (tilt / turn / lift /
+  squash), 3-bone B-bone arms, a 3-bone hair chain.
+- **Retarget** (`dancebuddy/retarget.py`). Arm directions come from the picture (monocular depth is unreliable, so
+  the 3D depth is damped), kept in front of the hair and the body; the shoulder socket slides up as the arm rises;
+  the body takes the dancer's turn, side tilt and lean, gentler; hair trails the body. Output: `<bone>.quat`,
+  `<bone>.loc`, `root.lift`, `root.squash` channels.
 
 ## Metrics (`eval`)
 

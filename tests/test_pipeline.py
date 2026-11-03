@@ -173,13 +173,15 @@ def test_copy_raises_the_arm_the_dancer_raises(synth):
     from dancebuddy.retarget import retarget
 
     kp, _ = synth
-    kp = {**kp, "world": kp["world"].copy()}
-    w = kp["world"]
+    kp = {**kp, "world": kp["world"].copy(), "image": kp["image"].copy()}
+    w, im = kp["world"], kp["image"]
     half = len(w) // 2
-    for i in range(len(w)):  # MediaPipe y points down: first half arm hanging, second half arm straight up
+    for i in range(len(w)):  # y points down in both: first half arm hanging, second half arm straight up
         d = 1 if i < half else -1
         w[i, L_EL] = w[i, L_SH] + [0, 0.28 * d, 0]
         w[i, L_WR] = w[i, L_SH] + [0, 0.55 * d, 0]
+        im[i, L_EL] = im[i, L_SH] + [0, 0.12 * d, 0]
+        im[i, L_WR] = im[i, L_SH] + [0, 0.24 * d, 0]
     rig = json.loads((ROOT / "assets" / "plush_soft_rig.json").read_text())
     curves = retarget(kp, rig)
     assert all(len(v) == curves["n_frames"] for v in curves["channels"].values())

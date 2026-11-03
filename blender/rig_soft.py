@@ -123,6 +123,108 @@ def chain_weights(s, joints, blend=0.12):
     return W / np.maximum(W.sum(1, keepdims=True), 1e-9)
 
 
+def separate_arms(me, body, a):
+    """Cut the arms free from the body like the sewn-on arms of a plush toy.
+
+    The generated mesh is one surface: an arm's root is glued to the body, and there is no body surface under it.
+    So: join seam vertices, mark arm faces by the texture colour at their centre, split the mesh along the
+    arm/body border, close the hole in the body with body-coloured faces and cap the arm root with arm-coloured
+    faces. The arm then turns around a joint hidden in the body and the body outline never changes."""
+    import bmesh
+
+    img = base_colour_image(body).copy()
+    size = 1024
+    img.scale(size, size)
+    px = np.zeros(size * size * 4, np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(size, size, 4)
+    bpy.data.images.remove(img)
+
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=2e-4)
+    bm.faces.ensure_lookup_table()
+    uvl = bm.loops.layers.uv.active
+    fuv = np.array([np.mean([lp[uvl].uv[:] for lp in f.loops], axis=0) for f in bm.faces])
+    x = np.clip((fuv[:, 0] % 1) * (size - 1), 0, size - 1).astype(int)
+    y = np.clip((fuv[:, 1] % 1) * (size - 1), 0, size - 1).astype(int)
+    rgb = np.clip(px[y, x, :3], 0, 1)
+    mx, mn = rgb.max(1), rgb.min(1)
+    d = mx - mn + 1e-9
+    r, g, b = rgb.T
+    hue = np.where(mx == r, (g - b) / d % 6, np.where(mx == g, (b - r) / d + 2, (r - g) / d + 4)) * 60
+    sat = d / (mx + 1e-9)
+    fc = np.array([f.calc_center_median()[:] for f in bm.faces])
+    xmax = np.abs(fc[:, 0]).max()
+    arm = (hue > a.arm_hue[0]) & (hue < a.arm_hue[1]) & (sat > 0.3) & (np.abs(fc[:, 0]) > 0.25 * xmax)
+    # keep the two big arm regions only (eyes etc. are blue too)
+    lay = bm.faces.layers.int.new("arm")
+    for f, v in zip(bm.faces, arm):
+        f[lay] = int(v)
+
+    border = [e for e in bm.edges if len(e.link_faces) == 2 and e.link_faces[0][lay] != e.link_faces[1][lay]]
+    cut = bm.verts.layers.int.new("cut")
+    for e in border:
+        for v in e.verts:
+            v[cut] = 1
+    bmesh.ops.split_edges(bm, edges=border)
+    open_edges = [e for e in bm.edges if e.is_boundary and all(v[cut] for v in e.verts)]
+    # The cut is not one clean loop (generated meshes are full of small gaps), so close each opening with a fan
+    # around its centre: points on the cut, per shoulder and per side of the cut, sorted by angle.
+    bm.verts.ensure_lookup_table()
+    centre = np.array([float(np.mean(fc[:, 0])), float(np.mean(fc[:, 1])), 0.0])
+    n_new = 0
+    for sign in (1, -1):
+        for is_cap in (False, True):
+            ring = [v for v in bm.verts if v[cut] and np.sign(v.co.x - centre[0]) == sign
+                    and v.link_faces and all(bool(f[lay]) == is_cap for f in v.link_faces)]
+            if len(ring) < 6:
+                continue
+            P = np.array([v.co[:] for v in ring])
+            c = P.mean(0)
+            _, _, vt = np.linalg.svd(P - c)
+            nrm = vt[2] if np.dot(vt[2], c - np.r_[centre[:2], c[2]]) > 0 else -vt[2]
+            e1, e2 = vt[0], np.cross(nrm, vt[0])
+            ang = np.arctan2((P - c) @ e2, (P - c) @ e1)
+            order = [ring[i] for i in np.argsort(ang)]
+            rad = float(np.median(np.linalg.norm(P - c, axis=1)))
+            # the body patch bulges out to follow the body; the arm cap sinks in (it stays inside the body)
+            hub = bm.verts.new(Vector(c + nrm * (0.2 if not is_cap else -0.2) * rad))
+            # paint with a clean sample of the part's colour: the texture is darker right at the old joint
+            # (baked shadow), so take a typical-brightness face a little away from it
+            dist = np.linalg.norm(fc - c, axis=1)
+            skin = (hue > 15) & (hue < 40) & (sat > 0.25) & (sat < 0.7) & (mx > 0.55)  # body colour, not hair
+            ok = arm if is_cap else (skin & ~arm)
+            cand = np.nonzero(ok & (dist > 1.5 * rad) & (dist < 4 * rad))[0]
+            if len(cand) == 0:
+                cand = np.nonzero(ok)[0]
+            uv = fuv[cand[np.argsort(mx[cand])[len(cand) // 2]]]
+            for k in range(len(order)):
+                v0, v1 = order[k], order[(k + 1) % len(order)]
+                if v0 is v1 or (v0.co - v1.co).length > 1.5 * rad:
+                    continue
+                try:
+                    f = bm.faces.new((hub, v0, v1))
+                except ValueError:
+                    continue
+                f.smooth = True
+                f.normal_update()
+                if np.dot(f.normal[:], nrm) < 0:  # face outward (the body patch) / along the arm (the cap)
+                    f.normal_flip()
+                f[lay] = int(is_cap)
+                for lp in f.loops:
+                    lp[uvl].uv = uv
+                n_new += 1
+    print(f"cut arms free: {len(border)} border edges, {n_new} new faces")
+    flags = [f[lay] for f in bm.faces]
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    attr = me.attributes.new("is_arm_face", "BOOLEAN", "FACE")
+    attr.data.foreach_set("value", np.array(flags, bool))
+    return int(sum(flags))
+
+
 # ------------------------------------------------------------------ build
 
 def main():
@@ -141,20 +243,20 @@ def main():
     # Generated meshes are split along UV seams. Join vertices at the same position, so each point of the
     # surface gets one part label and one set of weights (otherwise seams crack open when a limb moves).
     # UVs live on face corners, so the texture is unaffected.
-    import bmesh
-    bm = bmesh.new()
-    bm.from_mesh(me)
-    before = len(bm.verts)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
-    bm.to_mesh(me)
-    bm.free()
-    me.update()
-    print(f"merged seam vertices: {before} -> {len(me.vertices)}")
+    before = len(me.vertices)
+    arm_faces = separate_arms(me, body, a)
+    print(f"merged seam vertices: {before} -> {len(me.vertices)}; arm faces {arm_faces}")
 
     co, vuv = mesh_arrays(me)
     H, S, V = vertex_hsv(body, vuv)
     height = float(co[:, 2].max())
-    is_arm = (H > a.arm_hue[0]) & (H < a.arm_hue[1]) & (S > 0.3) & (np.abs(co[:, 0]) > 0.25 * np.abs(co[:, 0]).max())
+    # arms: every vertex of a face marked as arm (they are cut free from the body by separate_arms)
+    is_arm = np.zeros(len(co), bool)
+    arm_attr = me.attributes.get("is_arm_face")
+    vals = np.zeros(len(me.polygons), bool)
+    arm_attr.data.foreach_get("value", vals)
+    for pl in np.nonzero(vals)[0]:
+        is_arm[list(me.polygons[int(pl)].vertices)] = True
     is_hair = (H < 40) & (S > 0.45) & (V < a.hair_max_value) & (co[:, 2] > 0.15 * height) & ~is_arm
     is_body = ~is_arm & ~is_hair
     low = is_body & (co[:, 2] < 0.3 * height)
@@ -259,11 +361,10 @@ def main():
             best_d[take], s_par[take] = dist[take], (seg[i] + t[take] * lens[i]) / seg[-1]
         r = float(np.median(best_d[d["mask"]]))
         s_raw = (co - pts[0]) @ ((pts[1] - pts[0]) / lens[0])          # distance past the shoulder joint
-        ramp = np.clip(s_raw / (0.12 * seg[-1]), 0, 1)
-        radial = 1 - np.clip((best_d - 1.15 * r) / (0.55 * r), 0, 1)
-        w = ramp * radial
-        w[d["mask"]] = np.maximum(w[d["mask"]], ramp[d["mask"]])
-        w[is_hair] = 0
+        # plush-toy shoulder: the whole arm turns rigidly around a joint hidden inside the body, and the body
+        # surface stays where it is (dragging body skin along made a stretched "sleeve" at the shoulder).
+        # Non-arm points get arm weight only if they lie on the arm itself (within its radius, past the joint).
+        w = d["mask"].astype(float)  # the arm is cut free: only its own points follow it, rigidly
         arm_w[side] = (w, chain_weights(s_par, list(seg / seg[-1]), blend=0.15))
         print(f"arm_{side}: radius {r:.3f}, {int((w > 0.5).sum())} points follow it")
     total = sum(w for w, _ in arm_w.values())
@@ -287,9 +388,10 @@ def main():
     # smooth in space (not along mesh edges: the mesh is in many pieces), then keep hair off the arms
     from scipy.spatial import cKDTree
     tree = cKDTree(co)
-    nbrs = tree.query_ball_point(co, r=0.025 * height)
-    for _ in range(2):
-        W = np.array([W[nb].mean(0) for nb in nbrs])
+    nbrs = tree.query_ball_point(co, r=0.008 * height)  # closes small seams inside a part
+    grp = np.where(is_arm, 1, 0)
+    for _ in range(2):  # never across the arm cut: the arm and the body must stay separate
+        W = np.array([W[[j for j in nb if grp[j] == grp[i]]].mean(0) for i, nb in enumerate(nbrs)])
     arm_cols = [idx[nm] for nm in bone_names if nm.startswith("arm_")]
     W[np.ix_(is_hair, arm_cols)] = 0
     W /= np.maximum(W.sum(1, keepdims=True), 1e-9)

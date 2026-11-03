@@ -23,9 +23,15 @@ from .perception import L_EL, L_HIP, L_SH, L_WR, R_EL, R_HIP, R_SH, R_WR
 BODY = {"turn_gain": 0.7, "turn_max": 35.0, "side_gain": 0.7, "side_max": 14.0, "lean_gain": 0.4, "lean_max": 10.0,
         "kick_tilt_deg_per_torso": 20.0, "kick_tilt_max": 10.0,
         "lift_per_torso": 0.25, "lift_max": 0.12, "squash_per_torso": 0.2, "squash_max": 0.06}
+# arm directions: in-plane from the image (reliable), depth from the 3D estimate (monocular depth is not)
+ARM_DEPTH_GAIN = 0.4
 HAIR = {"lag_s": 0.24, "follow": 0.6, "max_deg": 12.0, "share": (0.2, 0.5, 0.3)}
 # style from the spec's "tends_to": arms lead and the body follows, soft arms, squash low / stretch high
-STYLE = {"arm_stretch_overhead": 0.25,      # a raised arm lengthens by up to 25 % (soft tube)
+STYLE = {"straight_above_deg": 120,         # raised arms straighten out (reference: arms up are straight)
+         # the shoulder is a socket that slides up the side of the body as the arm rises (reference: a raised
+         # arm starts beside the face, a hanging arm beside the chest), so raised hands get above the head
+         "socket_slide": 0.14,              # how far up it slides for a vertical arm, in body heights
+         "socket_slide_from_deg": 80,
          "forearm_lag_s": 0.07,             # the end of the arm trails the upper arm a little
          "follow_tilt_deg": 6.0,            # the body leans toward the higher arm...
          "follow_delay_s": 0.4,             # ...about this long after the arms move
@@ -39,6 +45,33 @@ def _norm(v):
 def to_blender(p: np.ndarray) -> np.ndarray:
     """MediaPipe world (x screen-right, y down, z negative toward the camera) -> Blender (x right, y away, z up)."""
     return np.stack([p[..., 0], p[..., 2], -p[..., 1]], -1)
+
+
+def image_aspect(kp: dict) -> float:
+    """Width / height of the video, estimated from the body (keypoints.npz has no frame size): the shoulder
+    width / torso length ratio must be the same in the 3D estimate and in the image."""
+    w, im = kp["world"], kp["image"]
+    sw_w = np.linalg.norm(w[:, L_SH, :2] - w[:, R_SH, :2], axis=1)
+    th_w = np.abs(((w[:, L_HIP] + w[:, R_HIP]) / 2 - (w[:, L_SH] + w[:, R_SH]) / 2)[:, 1])
+    sw_i = np.abs(im[:, L_SH, 0] - im[:, R_SH, 0])
+    th_i = np.abs(((im[:, L_HIP] + im[:, R_HIP]) / 2 - (im[:, L_SH] + im[:, R_SH]) / 2)[:, 1])
+    facing = sw_i >= np.percentile(sw_i, 60)  # frames where the dancer faces the camera
+    r = (sw_w / np.maximum(th_w, 1e-6) * th_i / np.maximum(sw_i, 1e-6))[facing]
+    r = r[np.isfinite(r)]
+    return float(np.median(r)) if len(r) else 1.0
+
+
+def limb_dirs(kp: dict, w: np.ndarray, a: int, b: int, aspect: float) -> np.ndarray:
+    """(N,3) direction a->b in Blender axes: x and z from the image, y (depth) from the 3D estimate, damped."""
+    im = kp["image"]
+    dx = (im[:, b, 0] - im[:, a, 0]) * aspect
+    dz = -(im[:, b, 1] - im[:, a, 1])
+    v3 = w[:, b] - w[:, a]
+    scale = np.linalg.norm(np.c_[dx, dz], axis=1) / np.maximum(np.linalg.norm(v3[:, [0, 2]], axis=1), 1e-6)
+    dy = v3[:, 1] * scale * ARM_DEPTH_GAIN
+    d = np.c_[dx, dy, dz]
+    d = np.stack([smooth(d[:, k], 1.5) for k in range(3)], -1)
+    return _norm(d)
 
 
 def torso_frames(w: np.ndarray) -> np.ndarray:
@@ -74,11 +107,45 @@ def keep_clear(u: np.ndarray, sign: int) -> np.ndarray:
     u = u.copy()
     u[1] = min(u[1], 0.25)                       # never far behind the body
     if u[2] > 0:
-        u[1] = min(u[1], -0.8 * u[2])            # raised arms pass in front of the hair
-        u[0] += sign * 0.35 * u[2]               # and open outward so they read beside the head
+        u[1] = min(u[1], -0.35 * u[2])           # raised arms pass just in front of the hair (not foreshortened)
+        u[0] += sign * 0.15 * u[2]               # and open slightly outward so they read beside the head
     if sign * u[0] < 0.2:
         u[1] = min(u[1], -0.5)                   # arms crossing the body go in front of it
     return _norm(u)
+
+
+def raise_deg(u: np.ndarray) -> float:
+    """0 = hanging down, 90 = horizontal, 180 = straight up (direction in character rest axes)."""
+    return float(np.degrees(np.arccos(np.clip(-u[2], -1, 1))))
+
+
+def socket_offset(u: np.ndarray, sign: int, height: float) -> np.ndarray:
+    """Where the shoulder socket slides to (armature axes, metres): up the body side, inward as the body narrows,
+    and a little forward so the arm stays in front of the hair."""
+    a = raise_deg(_norm(u))
+    k = float(np.clip((a - STYLE["socket_slide_from_deg"]) / (175 - STYLE["socket_slide_from_deg"]), 0, 1))
+    k = k * k * (3 - 2 * k)
+    dz = STYLE["socket_slide"] * height * k
+    return np.array([-sign * 0.35 * dz, -0.2 * dz, dz])
+
+
+def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int) -> tuple[list, float]:
+    """Quaternions for a 3-bone soft arm whose upper part points along u and whose end points along f
+    (character rest axes), plus its length factor. Applies the spec's constraints and style."""
+    rest = {nm: M[nm][:, 1] for nm in names}
+    u = keep_clear(_norm(u), sign)
+    f = _norm(f)
+    if f[1] > 0.3:
+        f = _norm(f - np.array([0, f[1] - 0.3, 0]))
+    a = raise_deg(u)
+    k = float(np.clip((a - STYLE["straight_above_deg"]) / 40.0, 0, 1))
+    f = _norm((1 - k) * f + k * u)                   # raised arms are straight
+    ident = Rot.identity()
+    c1 = _align(u, rest[names[0]])
+    c2 = _align(_norm(u + f), c1.apply(rest[names[1]])) * c1
+    c3 = _align(f, c2.apply(rest[names[2]])) * c2
+    quats = [_local(M[names[0]], ident, c1), _local(M[names[1]], c1, c2), _local(M[names[2]], c2, c3)]
+    return quats, 1.0  # the arm keeps its length; the `stretch` channel is there for characters that need it
 
 
 def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
@@ -112,10 +179,13 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
     lean = np.clip(smooth(np.array(lean), 2.0) * BODY["lean_gain"], -BODY["lean_max"], BODY["lean_max"])
     turn = np.clip(turn * BODY["turn_gain"], -BODY["turn_max"], BODY["turn_max"])
 
+    # arm directions (image-based in the picture plane), in Blender axes
+    aspect = image_aspect(kp)
+    upper = {"L": limb_dirs(kp, w, L_SH, L_EL, aspect), "R": limb_dirs(kp, w, R_SH, R_EL, aspect)}
+    fore = {"L": limb_dirs(kp, w, L_EL, L_WR, aspect), "R": limb_dirs(kp, w, R_EL, R_WR, aspect)}
+
     # arms lead, the body follows: lean toward the higher arm a moment later
-    arm_up = {}
-    for side_name, (sh, el) in (("L", (L_SH, L_EL)), ("R", (R_SH, R_EL))):
-        arm_up[side_name] = np.array([_norm(T[i].T @ (w[i, el] - w[i, sh]))[2] for i in range(n)])
+    arm_up = {k: np.array([(T[i].T @ upper[k][i])[2] for i in range(n)]) for k in ("L", "R")}
     delay = int(round(STYLE["follow_delay_s"] * fps))
     diff = arm_up["L"] - arm_up["R"]
     follow = np.r_[np.full(delay, diff[0]), diff[:n - delay]] if delay < n else np.zeros(n)
@@ -144,23 +214,19 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
         for nm in names:
             ch[f"{nm}.quat"] = []
             ch[f"{nm}.stretch"] = []
+        ch[f"{names[0]}.loc"] = []
+        height = float(rig.get("height_m", 1.4))
         lag_f = int(round(STYLE["forearm_lag_s"] * fps))
         for i in range(n):
             Ti = T[i]
             j = max(0, i - lag_f)
-            u = keep_clear(_norm(Ti.T @ (w[i, el] - w[i, sh])), sign)
-            f = _norm(Ti.T @ (w[j, wr] - w[j, el]))  # forearm from a moment ago: the soft end trails
-            if f[1] > 0.3:
-                f = _norm(f - np.array([0, f[1] - 0.3, 0]))
-            c1 = _align(u, rest_dir[names[0]])
-            mid = _norm(u + f)
-            c2 = _align(mid, c1.apply(rest_dir[names[1]])) * c1
-            c3 = _align(f, c2.apply(rest_dir[names[2]])) * c2
-            ch[f"{names[0]}.quat"].append(_local(M[names[0]], ident, c1))
-            ch[f"{names[1]}.quat"].append(_local(M[names[1]], c1, c2))
-            ch[f"{names[2]}.quat"].append(_local(M[names[2]], c2, c3))
-            st = round(1 + STYLE["arm_stretch_overhead"] * max(0.0, float(u[2])), 4)
-            for nm in names:
+            u = Ti.T @ upper[side_name][i]
+            f = Ti.T @ fore[side_name][j]  # forearm from a moment ago: the soft end trails
+            quats, st = arm_pose(M, names, u, f, sign)
+            off = M[names[0]].T @ socket_offset(keep_clear(_norm(u), sign), sign, height)  # into the bone's frame
+            ch[f"{names[0]}.loc"].append([round(float(x), 4) for x in off])
+            for nm, q in zip(names, quats):
+                ch[f"{nm}.quat"].append(q)
                 ch[f"{nm}.stretch"].append(st)
 
     # ---- hair: trails the body (keeps where the body was a moment ago)
