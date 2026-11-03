@@ -20,11 +20,17 @@ Primitive families:
   * swings  (sway, twist, rock): alternate between +amplitude and
             -amplitude, reaching each extreme exactly on an accent.
   * holds   (lean_hold): ramp to a pose, hold it for the span, ramp back.
+  * follow  (follow): a bone continuously tracks one of the dancer's signals
+            (signals.py), so the character copies the shape of a move (an arm
+            lifting, the torso leaning) instead of only hitting its accents.
 """
 
 from __future__ import annotations
 
 import numpy as np
+
+from .beats import smooth
+from .signals import SIGNAL_NAMES, normalized
 
 # primitive name -> (channel on each bone, family, units, sensible amplitude range)
 PRIMITIVES: dict[str, dict] = {
@@ -44,7 +50,14 @@ PRIMITIVES: dict[str, dict] = {
              "doc": "smooth forward/back rocking, extremes on accents. Good for body waves, steps forward and back."},
     "lean_hold": {"channel": "lean", "family": "hold", "units": "degrees", "range": [-30, 30],
                   "doc": "lean to a pose and hold it for the whole span (negative = backwards). Good for poses and freezes."},
+    "follow": {"channel": None, "family": "follow", "units": "degrees at the dancer's typical extreme", "range": [-60, 60],
+               "needs": ["signal", "channel", "bones"],
+               "doc": "bones continuously track one dancer signal (see get_dance_signals), e.g. an arm bone following "
+                      "arm_L_raise, or the body's sway following torso_side. Copies the shape of the move, not just its "
+                      "accents. Choose 'channel' (lean | twist | sway). Negative amplitude mirrors the motion."},
 }
+FOLLOW_CHANNELS = ("lean", "twist", "sway")
+FOLLOW_EDGE_S = 0.15  # follow fades in/out over this long outside its span, so units join smoothly
 
 ATTACK_S = 0.12   # time to reach a hit
 RELEASE_S = 0.45  # time to relax after a hit
@@ -143,6 +156,9 @@ def compile_plan(plan: dict, score: dict, card: dict) -> dict:
     bones = [b["name"] for b in card["bones"]]
     root = card.get("root_bone", bones[0])
     channels: dict[str, np.ndarray] = {}
+    # follow: per (bone, channel, signal), the strongest weight seen at each frame and its amplitude
+    follows: dict[tuple[str, str, str], tuple[np.ndarray, np.ndarray]] = {}
+    edge = max(1, int(round(FOLLOW_EDGE_S * fps)))
 
     def ch(name: str) -> np.ndarray:
         if name not in channels:
@@ -166,6 +182,21 @@ def compile_plan(plan: dict, score: dict, card: dict) -> dict:
                     raise ValueError(f"unknown bone {b!r}; this character has {bones}")
             start = int(p.get("start", unit["start"]))
             end = int(p.get("end", unit["end"]))
+            if meta["family"] == "follow":
+                sig, chan = p.get("signal"), p.get("channel")
+                if sig not in SIGNAL_NAMES:
+                    raise ValueError(f"follow in unit {unit['id']} needs 'signal', one of {SIGNAL_NAMES}")
+                if chan not in FOLLOW_CHANNELS:
+                    raise ValueError(f"follow in unit {unit['id']} needs 'channel', one of {list(FOLLOW_CHANNELS)}")
+                frames = np.arange(n)
+                w = np.clip(1 - np.maximum(start - frames, frames - end) / edge, 0, 1)
+                w[(frames >= start) & (frames <= end)] = 1.0
+                for b in target_bones:
+                    wt, amp_c = follows.setdefault((b, chan, sig), (np.zeros(n), np.zeros(n)))
+                    take = w > wt
+                    wt[take] = w[take]
+                    amp_c[take] = float(p["amplitude"])
+                continue
             acc = [a for a in resolve_accents(p.get("accents", "all"), unit) if start <= a <= end]
             amp = float(p["amplitude"])
             for b in target_bones:
@@ -183,6 +214,10 @@ def compile_plan(plan: dict, score: dict, card: dict) -> dict:
                     c += _swing(n, acc, amp, start, end, fps)
                 elif fam == "hold":
                     c += _hold(n, amp, start, end, fps)
+
+    for (b, chan, sig), (wt, amp_c) in follows.items():
+        sigma = max(1.0, 0.08 * fps)  # soften amplitude changes between units
+        ch(f"{b}.{chan}")[:] += smooth(amp_c, sigma) * wt * normalized(score, sig)
 
     return {
         "fps": fps,

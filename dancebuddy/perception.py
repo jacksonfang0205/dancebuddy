@@ -216,6 +216,9 @@ def build_dance_score(kp: dict, unit_seconds: float = 2.0, source: str = "") -> 
             },
         })
 
+    from .signals import compute_signals, signal_stats
+
+    signals = compute_signals(kp)
     return {
         "source": source,
         "fps": fps,
@@ -224,6 +227,10 @@ def build_dance_score(kp: dict, unit_seconds: float = 2.0, source: str = "") -> 
         "beats": beats,
         "accents": accents,
         "units": units,
+        # per-frame data for the `follow` primitive and the get_dance_signals tool (not shown to the planner raw)
+        "signals": {k: [round(float(x), 3) for x in v] for k, v in signals.items()},
+        "signal_stats": signal_stats(signals),
+        "motion_energy": [round(float(x), 4) for x in speed],
     }
 
 

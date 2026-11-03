@@ -102,16 +102,26 @@ Results go to `agent_nocard/` and `agent_norevise/`, and `eval` picks them up au
 - **Dance score** (`dancebuddy/perception.py`, `beats.py`). A *hit* is a local minimum of body speed right after
   fast motion. Beats are all hits; accents are hits that are strong compared with their neighbours (±1 s).
   The clip is cut into ~2 s move units, each labelled with which regions move (arms, legs, torso, head)
-  and simple features (vertical bounce, torso twist range).
+  and simple features (vertical bounce, torso twist range). The score also stores 11 continuous **dancer signals**
+  (`signals.py`: arm raise, torso lean/side/twist, head nod/tilt, hip bounce/sway, foot lift), each with its
+  5th–95th percentile, for the `follow` primitive. Scores made before this change have no signals: re-run `perceive`.
 - **Character card** (`character.py`, `blender/make_capsule.py`). Rig facts from Blender plus a VLM description.
 - **Motion plan → curves** (`primitives.py`). The LLM never writes keyframes. It picks primitives per unit
-  (`bounce`, `squash`, `nod`, `tilt`, `sway`, `twist`, `rock`, `lean_hold`), bones, amplitude and which accents to
-  hit. A deterministic compiler turns that into per-frame channel curves, timed so each hit stops exactly on its accent.
+  (`bounce`, `squash`, `nod`, `tilt`, `sway`, `twist`, `rock`, `lean_hold`, `follow`), bones, amplitude and which
+  accents to hit. A deterministic compiler turns that into per-frame channel curves, timed so each hit stops exactly on
+  its accent. **`follow`** is the continuous one: it drives a bone channel (`lean`, `twist` or `sway`) with a dancer
+  signal rescaled by its percentiles, so the character *copies the shape* of moves its body can do (e.g. torso twist →
+  body twist) and translates only the rest (footwork → hops). It fades in and out over 0.15 s at unit borders.
 - **Checks** (`checks.py`). Run on the curves, so they apply to every system the same way:
   `accent_recall` (≥ 0.75 of dancer accents have a character hit within ±3 frames), `beat_precision`
   (≥ 0.5 of character hits land on a dancer beat), `limits` (per-channel angle/height limits), `idle_units`.
+  Hit strength is measured against the motion within ±1 s (not the whole clip), so a unit with large continuous
+  motion does not hide the hits of other units. `checks.json` also has a **per-unit report** (`units`): for each unit
+  with a problem, the dancer's label and regions, missed accents, off-beat hits, how much the character moves there
+  and how much the dancer moves, plus plain-language problems ("missed 3 of 3 accents"), so the agent knows *where*
+  to revise.
 - **Agent** (`agent.py`). Any OpenRouter model with tool calling (default `openai/gpt-6-sol`, set `DANCEBUDDY_MODEL`): `get_dance_score`, `get_character_card`, `list_primitives`,
-  `submit_plan`. The best attempt is kept; every attempt and the full trace are saved.
+  `get_dance_signals` (signal meanings and ranges, and which signals move most in each unit), `submit_plan`. The best attempt is kept; every attempt and the full trace are saved.
 - **Caching** (`llm.py`). Every model call is cached by its exact request under `.cache/llm/`, so re-running a step is
   free and deterministic. Commit the cache for the example clip and the quick start replays the agent without a key.
 
@@ -125,6 +135,7 @@ Results go to `agent_nocard/` and `agent_norevise/`, and `eval` picks them up au
 | `mean_offset_ms` | Mean timing offset of matched accents (positive = character late) |
 | `limit_violations`, `idle_units` | Channels over their limit; move units where the character barely moves |
 | `jerk` | Mean absolute second difference of motion energy (lower = smoother) |
+| `px_accent_recall`, `px_beat_precision` | The same two scores measured on the **rendered frames** (`video_metrics.py`), only when `<system>/frames/` exists: motion energy is the mean pixel difference between consecutive frames, hits are sharp stops in it. The agent never sees this signal, so it is an independent check on the curve metrics, and it also scores systems that have no curves (e.g. a video diffusion baseline: `motion_from_video(path, crop)`). |
 
 ## Models and cost
 
@@ -141,14 +152,18 @@ Cached calls are free, so re-running an unchanged step costs nothing.
 - A humanoid control and more body plans (quadruped, snake, bird) come next.
 - Beat detection is kinematic only. Music beats (e.g. AIST++ clips with audio) are not used yet.
 - Move-unit labels are heuristics from region energy, not a learned classifier.
-- The VLM looks at the character's views but not at the rendered result. Verification is code-only for now.
+- The VLM looks at the character's views but not at the rendered result. Verification is code-only for now; the
+  pixel metric is the first check computed from the rendered result.
+- There is no automatic check that `follow` copies the dancer faithfully: curve channels have arbitrary units, so
+  correlation with the dancer was not a reliable score. Faithfulness is left to the human study.
 
 ## Repository layout
 
 ```
-dancebuddy/        perception, beats, primitives, checks, baseline, character, agent, llm, CLI (__main__.py)
+dancebuddy/        perception, signals, beats, primitives, checks, video_metrics, baseline, character, agent, llm,
+                   CLI (__main__.py)
 blender/           make_capsule.py, render_curves.py, scene_utils.py (run with bpy or blender -b -P)
-examples/          handwritten_plan_synth.json
+examples/          handwritten plans for the synthetic dancer (`_follow.json` uses the follow primitive)
 tests/             fast tests with a synthetic dancer and a scripted model
 assets/            generated character files (capsule.blend, rig, views, card)
 runs/              one directory per clip

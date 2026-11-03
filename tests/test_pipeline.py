@@ -74,3 +74,92 @@ def test_cut_out_finds_the_character_on_a_plain_background(tmp_path):
     info = cut_out(ROOT / "examples" / "sample_character.png", tmp_path / "char")
     filled = sum(map(sum, info["grid"])) / (info["rows"] * info["cols"])
     assert 0.5 < filled < 0.95 and info["height_px"] > info["width_px"]
+
+
+def test_follow_tracks_the_dancer_signal(synth):
+    import numpy as np
+    from dancebuddy.signals import normalized
+
+    _, score = synth
+    unit = score["units"][2]  # torso-twist section
+    plan = {"units": [{"unit_id": 2, "intent": "copy the twist", "primitives": [
+        {"primitive": "follow", "signal": "torso_twist", "channel": "twist", "bones": ["upper"], "amplitude": 30}]}]}
+    curve = np.array(compile_plan(plan, score, CARD)["channels"]["upper.twist"])
+    s, e = unit["start"] + 5, unit["end"] - 5
+    target = normalized(score, "torso_twist")[s:e]
+    assert np.corrcoef(curve[s:e], target)[0, 1] > 0.95
+    assert abs(curve[:unit["start"] - 10]).max() < 1e-6  # nothing outside the unit (beyond the fade)
+
+
+def test_follow_needs_a_valid_signal(synth):
+    _, score = synth
+    for p in ({"primitive": "follow", "channel": "twist", "bones": ["upper"], "amplitude": 20},
+              {"primitive": "follow", "signal": "no_such", "channel": "twist", "bones": ["upper"], "amplitude": 20}):
+        with pytest.raises(ValueError):
+            compile_plan({"units": [{"unit_id": 0, "intent": "x", "primitives": [p]}]}, score, CARD)
+
+
+def test_get_dance_signals_tool(synth, tmp_path, monkeypatch):
+    _, score = synth
+    seen = {}
+    script = iter([
+        {"text": "", "tool_calls": [{"id": "a", "name": "get_dance_signals", "arguments": {}}]},
+        {"text": "", "tool_calls": [{"id": "b", "name": "submit_plan", "arguments": PLAN}]},
+        {"text": "done", "tool_calls": []},
+    ])
+
+    def fake_call(messages, *a, **k):
+        tool_msgs = [m for m in messages if m.get("role") == "tool"]
+        if tool_msgs and "signals" not in seen:
+            seen["signals"] = json.loads(tool_msgs[0]["content"])
+        return next(script)
+
+    monkeypatch.setattr(llm, "call", fake_call)
+    agent.run_agent(score, CARD, tmp_path)
+    reply = seen["signals"]
+    assert "torso_twist" in reply["signals"] and len(reply["units"]) == len(score["units"])
+    assert "torso_twist" in reply["units"][2]["most_active_signals"]
+
+
+def test_pixel_metric_finds_hits_in_rendered_frames(synth):
+    import numpy as np
+    from dancebuddy.video_metrics import motion_from_frames, pixel_metrics
+
+    _, score = synth
+    n, acc = score["n_frames"], score["accents"]
+    # a square that darts to the other side before each accent and stops dead on it (ease-out move)
+    pos, side, prev = np.zeros(n), 0.0, 0
+    for a in acc:
+        start = max(prev, a - 6)
+        pos[prev:start] = side
+        new = 50.0 - side
+        t = np.linspace(0, 1, a - start + 1)
+        pos[start:a + 1] = side + (new - side) * (1 - (1 - t) ** 2)
+        side, prev = new, a + 1
+    pos[prev:] = side
+    frames = []
+    for i in range(n):
+        img = np.full((90, 160, 3), 255, np.uint8)
+        img[30:60, 40 + int(pos[i]):70 + int(pos[i])] = 0
+        frames.append(img)
+    good = pixel_metrics(motion_from_frames(frames), score)
+    still = pixel_metrics(motion_from_frames([frames[0]] * n), score)
+    assert good["px_accent_recall"] >= 0.6
+    assert still["px_accent_recall"] == 0 and still["px_hits"] == 0
+
+
+def test_follow_plan_keeps_hits_in_other_units(synth):
+    # continuous follow motion in units 2-3 must not hide the hops of units 4-5
+    _, score = synth
+    plan = json.loads((ROOT / "examples" / "handwritten_plan_synth_follow.json").read_text())
+    res = run_checks(compile_plan(plan, score, CARD), score, CARD)
+    assert res["passed"], res["checks"]
+    assert not [u for u in res["units"] if u["unit_id"] in (4, 5)]
+
+
+def test_unit_report_names_the_failing_units(synth):
+    kp, score = synth
+    res = run_checks(pose_copy(kp, CARD), score, CARD)
+    bad = {u["unit_id"] for u in res["units"]}
+    assert bad and all(u["problems"] for u in res["units"])
+    assert bad <= {u["id"] for u in score["units"]}

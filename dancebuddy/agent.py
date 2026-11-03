@@ -16,7 +16,8 @@ from jsonschema import Draft202012Validator
 
 from . import llm
 from .checks import run_checks
-from .primitives import PRIMITIVES, compile_plan
+from .primitives import FOLLOW_CHANNELS, PRIMITIVES, compile_plan
+from .signals import SIGNAL_NAMES, unit_activity
 
 SYSTEM = """You are DanceBuddy, an animation agent. You make a non-humanoid 3D character dance along with a human
 dancer, in the same rhythm, by writing a motion plan.
@@ -24,13 +25,16 @@ dancer, in the same rhythm, by writing a motion plan.
 How to work:
 1. Read the dance score (move units, their accents and which body regions move) and the character card
    (what body the character has and which human parts it is missing).
-2. Read the primitive library.
+2. Read the primitive library and the dancer's continuous signals (which signals move most in each unit).
 3. For every move unit, decide how that move should be expressed on THIS body while keeping its rhythm and intent.
-   The character usually lacks arms or legs, so translate: e.g. footwork can become bounces, arm hits can become
-   nods or tilts of the upper body, a hip twist can become a twist of the lower bones. Put the strongest motion on
-   the accents. Vary the moves between units the way the dancer does.
+   Copy what the body can do: if the character has a part the dancer is moving (an arm, the torso), use `follow` so
+   that part tracks the dancer's signal and the move keeps its shape. Translate what it cannot do: the character
+   usually lacks arms or legs, so e.g. footwork can become bounces, arm hits can become nods or tilts of the upper
+   body, a hip twist can become a twist of the lower bones. Put the strongest motion on the accents. Vary the moves
+   between units the way the dancer does.
 4. Call submit_plan. It returns automatic checks: accent_recall (did the character hit the dancer's accents),
-   beat_precision (are the character's hits on the beat, not in between), limits, idle_units.
+   beat_precision (are the character's hits on the beat, not in between), limits, idle_units, plus a per-unit report
+   of what went wrong where (missed accents, off-beat hits, units where the character barely moves).
 5. If a check fails, read the details (missed accent frames, off-beat hits, limit violations) and submit a revised
    plan. Change what the check points at; keep what works.
 6. When all checks pass, or you are out of attempts, reply with a short summary of your plan and stop.
@@ -66,6 +70,10 @@ PLAN_SCHEMA = {
                                     "anyOf": [{"type": "string", "enum": ["all", "every_other", "first", "last"]},
                                               {"type": "array", "items": {"type": "integer"}}],
                                 },
+                                "signal": {"type": "string", "enum": SIGNAL_NAMES,
+                                           "description": "follow only: the dancer signal to track"},
+                                "channel": {"type": "string", "enum": list(FOLLOW_CHANNELS),
+                                            "description": "follow only: which rotation of the bones tracks the signal"},
                                 "start": {"type": "integer", "description": "optional start frame (defaults to unit start)"},
                                 "end": {"type": "integer", "description": "optional end frame (defaults to unit end)"},
                             },
@@ -83,6 +91,8 @@ TOOLS = [
     llm.tool_spec("get_character_card", "The character's rig (bones, channels, limits) and a description of its body: visible parts, missing human parts, suggested substitutions.",
                   {"type": "object", "properties": {}}),
     llm.tool_spec("list_primitives", "The motion primitives a plan can use, with their channel, amplitude units and sensible range.",
+                  {"type": "object", "properties": {}}),
+    llm.tool_spec("get_dance_signals", "The dancer's continuous signals (arm raise, torso lean/side/twist, head nod/tilt, hip bounce/sway, foot lift): what each means, its typical range, and which signals move most in each unit. Use them with the follow primitive.",
                   {"type": "object", "properties": {}}),
     llm.tool_spec("submit_plan", "Submit a full motion plan (all units). It is compiled to animation curves and checked; returns the check results.",
                   PLAN_SCHEMA),
@@ -116,6 +126,10 @@ def run_agent(score: dict, card: dict, out_dir: str | Path, max_attempts: int = 
             return json.dumps(card_view)
         if name == "list_primitives":
             return json.dumps(PRIMITIVES)
+        if name == "get_dance_signals":
+            if "signals" not in score:
+                return json.dumps({"error": "this dance score has no signals; the follow primitive is unavailable"})
+            return json.dumps({"signals": score["signal_stats"], "units": unit_activity(score)})
         if name == "submit_plan":
             if len(attempts) >= max_attempts:
                 return json.dumps({"error": "no attempts left; stop and summarise"})

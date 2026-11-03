@@ -2,7 +2,7 @@
  "passed": false,
  "checks": {
   "accent_recall": {
-   "value": 0.375,
+   "value": 0.5,
    "threshold": 0.75,
    "passed": false,
    "missed_accents": [
@@ -19,17 +19,13 @@
      "unit_id": 2
     },
     {
-     "frame": 181,
-     "unit_id": 2
-    },
-    {
      "frame": 191,
      "unit_id": 2
     }
    ]
   },
   "beat_precision": {
-   "value": 0.778,
+   "value": 0.667,
    "threshold": 0.5,
    "passed": true,
    "off_beat_hits": [
@@ -40,21 +36,20 @@
     {
      "frame": 126,
      "unit_id": 2
+    },
+    {
+     "frame": 162,
+     "unit_id": 2
+    },
+    {
+     "frame": 174,
+     "unit_id": 2
     }
    ]
   },
   "limits": {
    "passed": false,
    "violations": [
-    {
-     "channel": "top.lean",
-     "limit": 20,
-     "peak": 24.442,
-     "frames": [
-      27,
-      29
-     ]
-    },
     {
      "channel": "top.sway",
      "limit": 35,
@@ -73,7 +68,71 @@
  },
  "summary": {
   "n_accents": 8,
-  "n_character_hits": 9,
-  "mean_offset_ms": 0.0
- }
+  "n_character_hits": 12,
+  "mean_offset_ms": 25.0
+ },
+ "units": [
+  {
+   "unit_id": 0,
+   "dancer": "full-body",
+   "dancer_regions": [
+    "arms",
+    "head"
+   ],
+   "accents": 2,
+   "missed_accents": [
+    15
+   ],
+   "off_beat_hits": [
+    35
+   ],
+   "character_motion": 1.839,
+   "dancer_motion_vs_clip": 1.09,
+   "problems": [
+    "missed 1 of 2 accents",
+    "1 hits off the beat"
+   ]
+  },
+  {
+   "unit_id": 1,
+   "dancer": "arm-focused",
+   "dancer_regions": [
+    "arms"
+   ],
+   "accents": 2,
+   "missed_accents": [
+    68
+   ],
+   "off_beat_hits": [],
+   "character_motion": 1.282,
+   "dancer_motion_vs_clip": 1.07,
+   "problems": [
+    "missed 1 of 2 accents"
+   ]
+  },
+  {
+   "unit_id": 2,
+   "dancer": "arm-focused",
+   "dancer_regions": [
+    "arms",
+    "legs"
+   ],
+   "accents": 4,
+   "missed_accents": [
+    111,
+    191
+   ],
+   "off_beat_hits": [
+    126,
+    162,
+    174
+   ],
+   "character_motion": 0.788,
+   "dancer_motion_vs_clip": 0.89,
+   "problems": [
+    "missed 2 of 4 accents",
+    "3 hits off the beat"
+   ]
+  }
+ ]
 }

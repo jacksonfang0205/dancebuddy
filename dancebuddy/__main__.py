@@ -219,14 +219,18 @@ def cmd_eval(a):
         for sysdir in sorted(p for p in rd.iterdir() if (p / "curves.json").exists()):
             m = metrics(load(sysdir / "curves.json"), score, card)
             extra = {}
+            if list((sysdir / "frames").glob("frame_*.png")):  # rendered: add the pixel-based metric
+                from .video_metrics import motion_from_dir, pixel_metrics
+                extra.update(pixel_metrics(motion_from_dir(sysdir / "frames"), score))
             if (sysdir / "summary.json").exists():
                 s = load(sysdir / "summary.json")
-                extra = {"attempts": s["attempts"]}
+                extra["attempts"] = s["attempts"]
             rows.append({"run": rd.name, "system": sysdir.name, **m, **extra})
     if not rows:
         sys.exit("no results found")
     cols = ["run", "system", "accent_recall", "beat_precision", "beat_alignment", "mean_offset_ms",
-            "limit_violations", "idle_units", "jerk", "all_checks_passed", "attempts"]
+            "limit_violations", "idle_units", "jerk", "px_accent_recall", "px_beat_precision", "all_checks_passed",
+            "attempts"]
     lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     for r in rows:
         lines.append("| " + " | ".join(str(r.get(c, "")) for c in cols) + " |")
