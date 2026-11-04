@@ -1,13 +1,14 @@
 {
  "character": "plush",
- "version": 4,
- "what_this_is": "How this character moves: its pose vocabulary, and for each kind of pose how the parts move and how they connect. Learned by watching a reference video of the character dancing (Jimeng motion imitation; its hallucinated feet are ignored). These are qualitative rules, not numbers: a new dance has new angles and timings, but the character should still move and connect this way.",
+ "version": 5,
+ "what_this_is": "How this character moves: its pose vocabulary, and for each kind of pose how the parts move and how they connect. Learned by watching reference videos of the character dancing (two Jimeng motion-imitation clips; their hallucinated feet are ignored). These are qualitative rules, not numbers: a new dance has new angles and timings, but the character should still move and connect this way. 'status' says whether the current rig and copy already do it.",
  "body": {
   "parts": {
-   "body": "one soft egg: head and torso are a single piece, the face is on its upper front",
+   "body": "one soft bag of stuffing shaped like an egg: head and torso are a single piece, the face is on its upper front",
    "arms": "two soft blue tubes with mitten hands, sewn onto the sides of the body; no elbow, no wrist",
    "hair": "a big curly mop attached to the top and back of the head, hanging behind the body",
-   "legs": "none"
+   "legs": "none",
+   "hands": "flat mittens at the ends of the arms; they open (reaching, hanging) or ball up into fists (raised, bent, punching)"
   },
   "connections": {
    "shoulder": "a socket on the side of the body. The arm turns in it like a plush toy's sewn-on arm; the body around it does not stretch or follow the arm.",
@@ -15,7 +16,10 @@
    "arm_over_body": "wherever the arm goes it passes in front: in front of the body when it crosses the chest, in front of the hair when it is raised. The joint itself is hidden behind the arm.",
    "hair_to_head": "the hair stays on the scalp; only its lower part swings",
    "arm_faces_front": "the arms are flattened tubes and the mitten hands are flat: whatever the arm does, the hand's flat face (palm or back) stays toward the viewer, so a raised arm shows its full width, never its thin edge; the arm turns in its forearm and hand for this, not at the seam",
-   "arm_shape": "an arm keeps its width and its length in every pose; it only bends, as one smooth curve (no elbow); when the body squashes, the arms do not"
+   "arm_shape": "an arm keeps its width and its length in every pose; it only bends. A small bend is a gentle curve along the whole arm; a big bend gathers in the middle like a soft elbow (a rounded L: upper part out to the side, forearm up), still round. When the body squashes, the arms do not",
+   "arms_do_not_move_the_body": "an arm moving, however far, never pulls or widens the body: the body's outline stays as it is",
+   "body_soft": "the body itself is soft and keeps its volume: when the body moves (a lean, a hip lift, a kick, a step, a landing) it bends into a smooth C or S curve; the inside of the bend is pressed together and bulges out a little, the outside stretches and straightens; the base stays on the floor except in a jump; the face and the heart ride on the surface",
+   "back_is_hair": "seen from behind the character is almost all hair; the arms show a little at the sides"
   }
  },
  "poses": [
@@ -32,7 +36,7 @@
   {
    "pose": "one arm raised (wave)",
    "arms": "goes up from a socket that has slid up beside the face; straight or curving over the head; hand may ball up",
-   "body": "leans a little toward the raised arm, a moment after it moves"
+   "body": "leans toward the raised arm, a moment after it moves; the body itself does not stretch"
   },
   {
    "pose": "both arms overhead",
@@ -61,13 +65,49 @@
   },
   {
    "pose": "turn",
-   "body": "the whole egg turns on its base; the face moves across the body",
+   "body": "the whole egg turns on its base; small turns show the face moving across the body, big ones become a spin",
    "hair": "swings out on the side it turns away from, then settles"
   },
   {
    "pose": "bounce / jump",
    "body": "bobs up and down as a whole; squashes when low, stretches when high",
    "hair": "trails the bounce"
+  },
+  {
+   "pose": "spin (turns all the way round)",
+   "body": "the whole egg turns on its base past side-on to its back and round again",
+   "hair": "flies out to the side, then settles",
+   "arms": "stay close to the sides"
+  },
+  {
+   "pose": "both arms bent up (hands up, elbows out)",
+   "arms": "each arm goes out to the side and bends up in the middle like a soft elbow; hands beside or above the head, often fists",
+   "body": "upright, a little bounce"
+  },
+  {
+   "pose": "fists at the cheeks (guard)",
+   "arms": "bent up in front of the body, fists beside the face",
+   "body": "upright, may lean back a little"
+  },
+  {
+   "pose": "one arm across the front",
+   "arms": "the forearm lies across the front of the body, roughly level, the other arm out or down",
+   "body": "leans and turns toward the arm"
+  },
+  {
+   "pose": "leg lift or kick",
+   "body": "squashes, bends into a curve: the top leans away from the leg, the side of the leg bulges a little",
+   "arms": "come in toward the body or out for balance"
+  },
+  {
+   "pose": "step / weight shift",
+   "body": "bulges a little at the bottom and leans onto the supporting side, then back",
+   "arms": "swing a little"
+  },
+  {
+   "pose": "lean (S curve)",
+   "body": "the top leans one way while the bottom bulges the other way, like a pressed bag",
+   "arms": "follow the lean"
   }
  ],
  "dynamics": [
@@ -75,14 +115,18 @@
   "the body follows the arms a moment later (leans toward the higher or moving arm)",
   "hair trails the body and settles after the body stops",
   "arms move in quick moves with short holds in between",
-  "the arms bend as smooth curves; raised arms straighten"
+  "the arms bend as smooth curves; raised arms straighten",
+  "the body squishes a little on every weight change (step, kick, landing) and springs back",
+  "turns can go all the way round; the hair flies out on fast turns",
+  "hands ball up when the arm is raised and bent, open again when it reaches out or drops"
  ],
  "from_human": {
   "upper_arms_and_forearms": "copy their direction as seen in the picture; the forearm becomes the bend of the soft arm",
-  "torso": "copy turn, side tilt and lean, gentler than the dancer",
+  "torso": "copy the turn fully (the character can spin all the way round); copy side tilt and lean as bends of the soft body (a curve with a bulge), not only as rigid tilts",
   "head": "merged with the body: nods and tilts become small body tilts",
   "legs, steps, kicks": "no legs, so every leg movement is translated before anything else sees the motion (dancebuddy/legs.py): a jump becomes squash to wind up, stretch and a clear hop, squash on landing; a kick becomes a big lean away from the kicking leg with a small hop; a step becomes a small bob with a lean onto the stepping side; a squat becomes squash, rising on the toes a stretch; moving across the floor becomes a slide",
-  "hips": "hip sway becomes a sideways shift and a small tilt"
+  "hips": "a hip lift bends the body into a C toward the lifted hip, the pressed side bulging; hip sway becomes a sideways shift with a small bend",
+  "hands": "copy open or closed from the dancer's hand when it can be seen; otherwise fists for raised, bent arms and open hands for reaching"
  },
  "rig": {
   "file": "plush_soft.blend, made by blender/rig_soft.py from plush.blend (the mesh is not edited)",
@@ -91,8 +135,24 @@
  },
  "known_gaps": [
   "the texture has a shadow baked under each arm, which shows as a darker patch on the body side when the arm moves away",
-  "a raised arm gets thinner at its root",
-  "hands to the face and an arm across the whole chest do not reach as far as in the reference",
-  "hands do not ball up into fists; no facial expression"
- ]
+  "a raised arm's seam still shows a thin dark slit from the side",
+  "hands to the face and an arm across the whole chest do not reach as far as in the reference"
+ ],
+ "status": {
+  "done": [
+   "arms keep width and length, bend as one curve, hands face the viewer",
+   "arms do not move the body",
+   "socket slides up as the arm rises",
+   "leg translation (jump, kick, step, squat, rise, slide)",
+   "body groove on the beat"
+  ],
+  "not_yet": [
+   "spin: the body turn is limited (about 60 deg)",
+   "soft body bend and bulge (body_soft): the body only tilts rigidly and squashes up-down",
+   "soft elbow for big arm bends: big bends are still one even curve",
+   "fists: no finger bones yet",
+   "hair moves with the head only",
+   "facial expression"
+  ]
+ }
 }
