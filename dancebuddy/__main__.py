@@ -152,7 +152,24 @@ def cmd_copy(a):
     out = run_dir / a.name
     out.mkdir(exist_ok=True)
     (out / "curves.json").write_text(json.dumps(curves))
+    if score.exists():
+        from .copy_checks import run_copy_checks
+        spec_path = Path(str(a.char).split("_")[0] + "_motion_spec.json")
+        res = run_copy_checks(curves, load(score), rig, load(spec_path) if spec_path.exists() else {})
+        (out / "checks.json").write_text(json.dumps(res, indent=1))
     print(f"copy: {curves['n_frames']} frames, {len(curves['channels'])} channels -> {out}")
+
+
+def cmd_copy_agent(a):
+    """The agent decides how the dancer's moves are shown on the character (copy_agent.py), then copies."""
+    from .copy_agent import run_copy_agent
+    from .perception import load_keypoints
+    run_dir = Path(a.run)
+    rig = load(Path(str(a.char) + "_rig.json"))
+    spec_path = Path(str(a.char).split("_")[0] + "_motion_spec.json")
+    spec = load(spec_path) if spec_path.exists() else {}
+    run_copy_agent(load_keypoints(run_dir / "keypoints.npz"), load(run_dir / "dance_score.json"), rig, spec,
+                   run_dir / a.name, max_attempts=a.attempts, model=a.model)
 
 
 def cmd_apply(a):
@@ -317,6 +334,8 @@ def main(argv=None):
     s = add("baseline", cmd_baseline, "run"); char_opt(s)
     s = add("apply", cmd_apply, "run", "plan"); char_opt(s); s.add_argument("--name", default="handwritten")
     s = add("copy", cmd_copy, "run"); char_opt(s); s.add_argument("--name", default="copy")
+    s = add("copy-agent", cmd_copy_agent, "run"); char_opt(s); s.add_argument("--name", default="agent_copy")
+    s.add_argument("--attempts", type=int, default=4); s.add_argument("--model")
     s = add("render", cmd_render, "run"); char_opt(s); render_opts(s)
     s.add_argument("--systems", nargs="+", default=["agent", "posecopy"]); s.add_argument("--max-frames", type=int, default=0)
     s = add("compose", cmd_compose, "run"); s.add_argument("--systems", nargs="+", default=["agent", "posecopy"])

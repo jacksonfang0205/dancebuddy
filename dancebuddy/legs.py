@@ -129,7 +129,7 @@ def _hip_height(kp: dict) -> tuple[np.ndarray, np.ndarray]:
     return smooth(height, 1.0), smooth(across, 3.0)
 
 
-def translate(kp: dict, signals: dict) -> dict:
+def translate(kp: dict, signals: dict, overrides: dict[int, dict] | None = None) -> dict:
     """Per-frame lift / squash / tilt / shift for a legless body, plus the events found."""
     fps = float(kp["fps"])
     n = len(kp["world"])
@@ -143,35 +143,40 @@ def translate(kp: dict, signals: dict) -> dict:
     def bump(center: float, width: float) -> np.ndarray:
         return np.exp(-0.5 * ((t - center) / max(width, 1.0)) ** 2)
 
-    for ev in events:
+    overrides = overrides or {}
+    for idx, ev in enumerate(events):
+        ov = overrides.get(idx, {})
+        if ov.get("skip"):
+            continue
+        k = float(ov.get("size", 1.0))  # the agent's choice: scale this event's translation
         s, e, pk = ev["start"], ev["end"], ev["peak"]
         if ev["type"] == "jump":
             in_air[s:e + 1] = True
             g, lo, hi = RULES["jump_height"]
-            h = float(np.clip(g * ev["size"], lo, hi))
+            h = float(np.clip(g * ev["size"], lo, hi)) * k
             # stretch the hop over the whole time off the floor (a little longer reads better)
             s2, e2 = max(0, s - 1), min(n - 1, e + 1)
             phase = np.clip((t - s2) / max(1, e2 - s2), 0, 1)
             arc = np.where((t >= s2) & (t <= e2), np.sin(np.pi * phase), 0)
             lift = np.maximum(lift, h * arc)
             a = max(2, int(RULES["anticipate_s"] * fps))
-            squash += RULES["anticipate_squash"] * np.where((t >= s2 - a) & (t < s2), (t - (s2 - a)) / a, 0)
-            squash -= RULES["takeoff_stretch"] * np.where((t >= s2) & (t <= e2), np.sin(np.pi * phase), 0)
-            land = RULES["land_squash"] * np.where(t > e2, np.exp(-(t - e2) / (RULES["land_s"] * fps / 2)), 0)
+            squash += k * RULES["anticipate_squash"] * np.where((t >= s2 - a) & (t < s2), (t - (s2 - a)) / a, 0)
+            squash -= k * RULES["takeoff_stretch"] * np.where((t >= s2) & (t <= e2), np.sin(np.pi * phase), 0)
+            land = k * RULES["land_squash"] * np.where(t > e2, np.exp(-(t - e2) / (RULES["land_s"] * fps / 2)), 0)
             landing = np.maximum(landing, land)
         elif ev["type"] == "kick":
             away = 1.0 if ev["side"] == "R" else -1.0          # lean away from the kicking leg
             env = bump(pk, (e - s) / 2.5)
             size = min(1.0, ev["size"] / 0.5)
-            tilt += away * RULES["kick_tilt_deg"] * size * env
-            lift = np.maximum(lift, RULES["kick_hop"] * size * env)
+            tilt += k * away * RULES["kick_tilt_deg"] * size * env
+            lift = np.maximum(lift, k * RULES["kick_hop"] * size * env)
         else:  # step
             onto = 1.0 if ev["side"] == "L" else -1.0           # weight goes onto the stepping side
             env = bump(pk, max(2, (e - s) / 2.5))
             size = min(1.0, ev["size"] / RULES["kick"])
-            lift = np.maximum(lift, RULES["step_hop"] * size * env)
-            squash += RULES["step_squash"] * size * bump(e + 2, 2)
-            tilt += onto * RULES["step_tilt_deg"] * size * env
+            lift = np.maximum(lift, k * RULES["step_hop"] * size * env)
+            squash += k * RULES["step_squash"] * size * bump(e + 2, 2)
+            tilt += k * onto * RULES["step_tilt_deg"] * size * env
 
     # squat and rise from the hip height, except in the air (the hop already shows that)
     squat = np.clip(-hip_h * RULES["squat_gain"], 0, RULES["squat_max"])

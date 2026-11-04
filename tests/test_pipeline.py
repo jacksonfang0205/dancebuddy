@@ -212,3 +212,47 @@ def test_legs_become_hops_leans_and_squash(synth):
     assert out["lift"][40:50].max() > 0.08                      # a visible hop
     assert out["squash"][51:60].max() > 0.05                    # squash on landing
     assert out["tilt"][100:115].max() > 8                       # lean away from the right leg (toward its left)
+
+
+def test_default_copy_plan_is_the_plain_copy(synth):
+    import numpy as np
+    from dancebuddy.copy_plan import default_plan
+    from dancebuddy.retarget import retarget
+
+    kp, score = synth
+    rig = json.loads((ROOT / "assets" / "plush_soft_rig.json").read_text())
+    a = retarget(kp, rig, beats=score["beats"], score=score)["channels"]
+    b = retarget(kp, rig, beats=score["beats"], score=score, plan=default_plan(score))["channels"]
+    assert all(np.allclose(a[k], b[k]) for k in a)
+
+
+def test_copy_agent_revises_and_keeps_the_best(synth, tmp_path, monkeypatch):
+    from dancebuddy.copy_agent import run_copy_agent
+    from dancebuddy.copy_plan import default_plan
+
+    kp, score = synth
+    rig = json.loads((ROOT / "assets" / "plush_soft_rig.json").read_text())
+    spec = json.loads((ROOT / "assets" / "plush_motion_spec.json").read_text())
+    first = default_plan(score)
+    second = json.loads(json.dumps(first))
+    second["units"][0]["head"] = 1.0
+    second["emphasis"] = [{"frame": score["accents"][0], "move": "squash", "size": 0.8}]
+    seen = []
+    script = iter([
+        {"text": "", "tool_calls": [{"id": "a", "name": "get_dance_score", "arguments": {}},
+                                    {"id": "b", "name": "get_leg_events", "arguments": {}}]},
+        {"text": "", "tool_calls": [{"id": "c", "name": "submit_copy_plan", "arguments": first}]},
+        {"text": "", "tool_calls": [{"id": "d", "name": "submit_copy_plan", "arguments": second}]},
+        {"text": "done", "tool_calls": []},
+    ])
+
+    def fake(messages, *a, **k):
+        seen.append(messages[-1])
+        return next(script)
+
+    monkeypatch.setattr(llm, "call", fake)
+    summary = run_copy_agent(kp, score, rig, spec, tmp_path)
+    assert summary["attempts"] == 2
+    report = json.loads(seen[2]["content"])          # what the model saw after its first plan
+    assert "checks" in report and "units" in report
+    assert (tmp_path / "curves.json").exists() and (tmp_path / "plan.json").exists()

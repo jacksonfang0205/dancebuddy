@@ -166,6 +166,27 @@ uv run python -m dancebuddy compose runs/my --systems copy
   hop, landing squash), kicks (lean away from the leg), steps (bob, lean onto the step), squats, rising on the
   toes, and moving across the floor (slide). The events found are saved in `curves.json` (`leg_events`).
 
+## Agent on the copy pipeline (branch `agent-copy`)
+
+The copy above is deterministic. `copy-agent` puts an LLM agent (OpenRouter, `OPENROUTER_API_KEY`) in charge of how
+the dancer's moves are shown on the character, without writing keyframes:
+
+```bash
+uv run python -m dancebuddy copy-agent runs/my --char assets/plush_soft      # -> runs/my/agent_copy
+uv run python -m dancebuddy render runs/my --systems agent_copy --char assets/plush_soft --engine cycles
+uv run python -m dancebuddy compose runs/my --systems copy agent_copy
+```
+
+- **Plan** (`copy_plan.py`): per move unit, knobs for the body, arms, groove and head layers (head = the dancer's
+  head nods and tilts moved onto the upper body, since the character has no neck); per leg event, skip or scale its
+  translation; extra emphasis moves (squash, hop, nod, tilt, twist) on chosen accents. The default plan is exactly
+  the plain copy.
+- **Checks** (`copy_checks.py`), per unit: accents without a visible hit, completeness (does the character move
+  about as much as the dancer, relatively; much less = the copy ate the move), frames out of the picture, range.
+  `copy` writes the same checks for the plain copy, for comparison.
+- **Loop** (`copy_agent.py`): tools to read the dance, the leg events, the signals and the motion spec; submit a
+  plan, read the checks, revise (4 attempts); the best is kept with its trace.
+
 ## Metrics (`eval`)
 
 | Metric | Meaning |

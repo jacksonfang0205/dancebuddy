@@ -151,7 +151,7 @@ def socket_rot(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: in
 
 
 def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int,
-             parent: Rot | None = None) -> tuple[list, float]:
+             parent: Rot | None = None, scale: float = 1.0) -> tuple[list, float]:
     """Quaternions for a 3-bone soft arm (character rest axes), plus its length factor.
 
     The arm moves as one soft tube: the whole arm (keeping its own rest curve) turns to point from the shoulder
@@ -169,8 +169,10 @@ def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int,
     tip = np.array(M[f"{names[-1]}__tail"])
     rest_dir = _norm(tip - heads[0])
     whole = _align(target, rest_dir)                 # the arm with its rest curve, turned as a whole
+    if scale != 1.0:                                 # the agent's choice: exaggerate or soften the arm move
+        whole = Rot.from_rotvec(whole.as_rotvec() * scale)
     axis = np.cross(u, f)
-    bend = float(np.arctan2(np.linalg.norm(axis), np.dot(u, f))) * STYLE["bend_share"]
+    bend = float(np.arctan2(np.linalg.norm(axis), np.dot(u, f))) * STYLE["bend_share"] * scale
     axis = _norm(axis) if np.linalg.norm(axis) > 1e-6 else np.zeros(3)
     cs = [Rot.from_rotvec(axis * bend * t) * whole for t in (-1 / 3, 0.0, 1 / 3)]  # one even arc
     quats = [_local(M[names[0]], parent, cs[0]), _local(M[names[1]], cs[0], cs[1]),
@@ -207,7 +209,10 @@ def groove(n: int, fps: float, beats: list[int] | None, busy: np.ndarray) -> dic
     return {"tilt": tilt, "twist": twist, "bend": bend, "pulse": pulse}
 
 
-def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] | None = None) -> dict:
+def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] | None = None,
+             plan: dict | None = None, score: dict | None = None) -> dict:
+    """plan: the agent's decisions (copy_plan.py); None = the plain copy. score: the dance score (move units)."""
+    from .copy_plan import emphasis_curves, knob_curves, leg_overrides
     fps = float(kp["fps"])
     w = to_blender(kp["world"])
     w = np.stack([np.stack([smooth(w[:, j, k], 1.5) for k in range(3)], -1) for j in range(w.shape[1])], 1)
@@ -223,8 +228,10 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         from .signals import compute_signals
         signals = compute_signals(kp)
     from .legs import translate as translate_legs
-    legs = translate_legs(kp, signals)
+    legs = translate_legs(kp, signals, leg_overrides(plan))
     height = float(rig.get("height_m", 1.4))
+    knob = knob_curves(plan, score, n, fps)
+    emph = emphasis_curves(plan, n, fps, height)
 
     # ---- body: turn, side tilt, forward lean of the dancer's torso, scaled to the character
     X, Z = T[:, :, 0], T[:, :, 2]
@@ -235,9 +242,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         z = Rot.from_euler("z", -turn[i], degrees=True).apply(Z[i])
         side.append(np.degrees(np.arctan2(z[0], z[2])))       # + = tilt toward the character's left (+X)
         lean.append(np.degrees(np.arctan2(-z[1], z[2])))      # + = forward (toward the camera, -Y)
-    side = smooth(np.array(side), 1.0) + legs["tilt"]
-    lean = soft_limit(smooth(np.array(lean), 1.0), BODY["lean_max"])
-    turn = soft_limit(turn, BODY["turn_max"])
+    side = smooth(np.array(side), 1.0) * knob["body"] + legs["tilt"] + emph["tilt"]
+    lean = soft_limit(smooth(np.array(lean), 1.0) * knob["body"], BODY["lean_max"])
+    turn = soft_limit(turn * knob["body"] + emph["twist"], BODY["turn_max"])
 
     # arm directions (image-based in the picture plane), in Blender axes
     aspect = image_aspect(kp)
@@ -252,19 +259,25 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
     side = soft_limit(side + STYLE["follow_tilt_deg"] * smooth(follow, 3.0), BODY["side_max"])
     busy = np.maximum.reduce([np.abs(side), np.abs(lean), np.abs(turn) / 2])
     gv = groove(n, fps, beats, busy)
+    gv = {k: v * knob["groove"] for k, v in gv.items()}
     side = side + gv["tilt"]
     turn = turn + gv["twist"]
     body = [Rot.from_euler("z", turn[i], degrees=True) * Rot.from_euler("y", side[i], degrees=True)
             * Rot.from_euler("x", lean[i], degrees=True) for i in range(n)]
-    upper_bend = [Rot.from_euler("y", gv["bend"][i], degrees=True) for i in range(n)]  # S-shaped wiggle
+    # upper body: S-shaped wiggle, plus the dancer's head nods and tilts when the plan asks for them
+    nod = soft_limit(smooth(np.asarray(signals.get("head_nod", np.zeros(n)), float), 1.0) * knob["head"] + emph["nod"], 20.0)
+    htilt = soft_limit(smooth(np.asarray(signals.get("head_tilt", np.zeros(n)), float), 1.0) * knob["head"], 20.0)
+    upper_bend = [Rot.from_euler("y", gv["bend"][i] + htilt[i], degrees=True) * Rot.from_euler("x", nod[i], degrees=True)
+                  for i in range(n)]
 
     ch: dict[str, list] = {k: [] for k in ["root.quat", "root.loc", "root.squash"]}
     ident = Rot.identity()
     for i in range(n):
         ch["root.quat"].append(_local(M["root"], ident, body[i]))
         # root rest frame: x = across (character's left), y = up
-        ch["root.loc"].append([round(float(legs["shift"][i] * height), 4), round(float(legs["lift"][i] * height), 4), 0.0])
-    ch["root.squash"] = [round(float(x), 4) for x in legs["squash"] + gv["pulse"]]
+        ch["root.loc"].append([round(float(legs["shift"][i] * height), 4),
+                               round(float((legs["lift"][i] + emph["lift"][i]) * height), 4), 0.0])
+    ch["root.squash"] = [round(float(x), 4) for x in np.clip(legs["squash"] + gv["pulse"] + emph["squash"], -0.1, 0.25)]
     if "body_upper" in M:
         ch["body_upper.quat"] = [_local(M["body_upper"], ident, upper_bend[i]) for i in range(n)]
 
@@ -288,7 +301,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
             c0 = socket_rot(M, [f"arm_{side_name}_{k}" for k in (1, 2, 3)], u, f, sign) if socket else Rot.identity()
             if socket:
                 ch[f"{socket}.quat"].append(_local(M[socket], ident, c0))
-            quats, st = arm_pose(M, names, u, f, sign, parent=c0)
+            quats, st = arm_pose(M, names, u, f, sign, parent=c0, scale=float(knob["arms"][i]))
             for nm, q in zip(names, quats):
                 ch[f"{nm}.quat"].append(q)
                 ch[f"{nm}.stretch"].append(st)
