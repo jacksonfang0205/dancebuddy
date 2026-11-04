@@ -21,9 +21,10 @@ from __future__ import annotations
 import numpy as np
 
 from .beats import smooth
-from .perception import L_HIP, L_SH, R_HIP, R_SH
+from .perception import L_AN, L_HIP, L_SH, R_AN, R_HIP, R_SH
 
 RULES = {
+    "seen": 0.8,           # a foot counts only where the pose model sees it this surely (wide trousers, occlusion)
     "air": 0.15,           # both feet higher than this (torso lengths) = in the air
     "kick": 0.25,          # one foot higher than this, the other down = kick
     "step": 0.07,          # one foot higher than this = step
@@ -55,10 +56,49 @@ def _segments(mask: np.ndarray, min_len: int = 2) -> list[tuple[int, int]]:
     return out
 
 
+def floor_lifts(kp: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Height of each foot above the floor, in torso lengths, robust to the dancer walking toward or away from
+    the camera and to cuts.
+
+    With a fixed camera and a flat floor, a foot on the floor appears lower in the picture the closer the dancer
+    is, and the dancer's size grows in step: floor_y = a + b * size. That line is fitted to the lower foot of
+    every frame (per shot; a shot change shows as a sudden jump in size), keeping the frames on the floor. A foot
+    is off the floor when it is above the line for the dancer's current size; a jump moves the whole body up
+    without changing its size, walking away does not."""
+    im = kp["image"]
+    sh, hip = im[:, [L_SH, R_SH], :2].mean(1), im[:, [L_HIP, R_HIP], :2].mean(1)
+    size = smooth(np.linalg.norm(sh - hip, axis=1), 2.0) + 1e-6
+    ay = im[:, [L_AN, R_AN], 1]
+    low = ay.max(1)  # image y grows downward: the lower foot is the one more likely on the floor
+    n = len(size)
+    rel = np.abs(np.diff(size)) / size[:-1]
+    cuts = [0] + [i + 1 for i in np.nonzero(rel > 0.08)[0]] + [n]
+    floor = np.zeros(n)
+    for s0, s1 in zip(cuts[:-1], cuts[1:]):
+        if s1 - s0 < 3:
+            floor[s0:s1] = low[s0:s1]
+            continue
+        X = np.c_[np.ones(s1 - s0), size[s0:s1]]
+        y = low[s0:s1]
+        keep = np.ones(s1 - s0, bool)
+        for _ in range(4):  # refit on the frames at or below the line (feet on the floor)
+            coef = np.linalg.lstsq(X[keep], y[keep], rcond=None)[0]
+            keep = (y - X @ coef) > -0.08 * size[s0:s1]
+        floor[s0:s1] = X @ coef
+    return (np.clip((floor - ay[:, 0]) / size, 0, None), np.clip((floor - ay[:, 1]) / size, 0, None))
+
+
 def detect_events(kp: dict, signals: dict) -> list[dict]:
     """Leg events: {"type", "start", "peak", "end", "side" (L/R or None), "size" (torso lengths)}."""
-    fl = np.asarray(signals["foot_L_lift"], float)
-    fr = np.asarray(signals["foot_R_lift"], float)
+    if "floor_lift_L" in signals:  # precomputed (e.g. tests)
+        fl, fr = (np.asarray(signals[k], float) for k in ("floor_lift_L", "floor_lift_R"))
+    else:
+        fl, fr = (smooth(x, 1.0) for x in floor_lifts(kp))
+    vis = kp.get("visibility")
+    seen_l = vis[:, L_AN] >= RULES["seen"] if vis is not None else np.ones(len(fl), bool)
+    seen_r = vis[:, R_AN] >= RULES["seen"] if vis is not None else np.ones(len(fl), bool)
+    # a foot we cannot see is not evidence of a leg move: treat it as on the floor
+    fl, fr = np.where(seen_l, fl, 0.0), np.where(seen_r, fr, 0.0)
     both = np.minimum(fl, fr)
     events = []
     air = both > RULES["air"]
@@ -72,10 +112,11 @@ def detect_events(kp: dict, signals: dict) -> list[dict]:
             size = float(me[pk])
             kind = "kick" if size > RULES["kick"] and other[pk] < RULES["kick"] / 2 else "step"
             events.append({"type": kind, "start": s, "end": e, "peak": pk, "side": side, "size": size})
-    # a foot leaving or touching the floor at the edge of a jump is part of the jump, not a step
+    # a foot leaving or touching the floor at the edge of a jump is part of the jump, not a step or a kick
     jumps = [ev for ev in events if ev["type"] == "jump"]
-    events = [ev for ev in events if ev["type"] != "step"
-              or not any(j["start"] - 3 <= ev["peak"] <= j["end"] + 3 for j in jumps)]
+    edge = max(3, int(0.12 * float(kp["fps"])))
+    events = [ev for ev in events if ev["type"] == "jump"
+              or not any(j["start"] - edge <= ev["peak"] <= j["end"] + edge for j in jumps)]
     return sorted(events, key=lambda ev: ev["start"])
 
 

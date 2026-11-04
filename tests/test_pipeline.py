@@ -202,10 +202,10 @@ def test_legs_become_hops_leans_and_squash(synth):
 
     kp, _ = synth
     n = len(kp["world"])
-    sig = {k: np.zeros(n) for k in ("foot_L_lift", "foot_R_lift")}
-    sig["foot_L_lift"][40:50] = sig["foot_R_lift"][40:50] = 0.5   # a jump
-    sig["foot_R_lift"][100:115] = np.r_[np.linspace(0.05, 0.5, 8), np.linspace(0.5, 0.05, 7)]  # a right kick
-    sig["foot_L_lift"][200:204] = 0.12                              # a left step
+    sig = {k: np.zeros(n) for k in ("floor_lift_L", "floor_lift_R")}
+    sig["floor_lift_L"][40:50] = sig["floor_lift_R"][40:50] = 0.5   # a jump
+    sig["floor_lift_R"][100:115] = np.r_[np.linspace(0.05, 0.5, 8), np.linspace(0.5, 0.05, 7)]  # a right kick
+    sig["floor_lift_L"][200:204] = 0.12                              # a left step
     out = translate(kp, {**compute_signals(kp), **sig})
     kinds = [(e["type"], e["side"]) for e in out["events"]]
     assert ("jump", None) in kinds and ("kick", "R") in kinds and ("step", "L") in kinds
