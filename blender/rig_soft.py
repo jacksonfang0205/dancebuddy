@@ -5,9 +5,7 @@ The rig follows the character's motion spec (assets/<name>_motion_spec.json), wh
   * shoulders : arm_X_0, hidden in the body and not deforming; turning it slides the arm's root up the body side
                 (a raised arm starts beside the face)
   * arms      : arm_X_1..3, B-bones, so each arm bends as one smooth curve (no elbow)
-  * hair      : physically simulated: a coarse closed shell around the hair is a cloth (pinned at the scalp, with
-                gravity, inertia, inner pressure and collisions with the body) and the real hair follows it
-                (Surface Deform). Its physical properties come from the motion spec, not from any dance.
+  * hair      : no bones of its own; it moves with the head (not animated separately)
 
 The mesh is never edited. Parts are found from the base-colour texture (arms = blue, hair = dark brown). Weights
 come from Blender's heat diffusion ("automatic weights") computed on a closed voxel copy of the body (generated
@@ -40,8 +38,6 @@ def parse():
     p.add_argument("--arm-hue", type=float, nargs=2, default=[190, 260], help="hue range (deg) of the arms")
     p.add_argument("--hair-max-value", type=float, default=0.45, help="hair is darker than this (HSV value)")
     p.add_argument("--voxel", type=float, default=0.012, help="voxel size of the weighting copy, x height")
-    p.add_argument("--spec", default="", help="motion spec with the hair's physical properties "
-                   "(default: <out dir>/<name>_motion_spec.json, name = out name before '_')")
     return p.parse_args(argv)
 
 
@@ -117,139 +113,6 @@ def chain_weights(s, joints, blend=0.12):
             w *= np.clip(((hi + blend / 2) - s) / blend, 0, 1)
         W[:, i] = w
     return W / np.maximum(W.sum(1, keepdims=True), 1e-9)
-
-
-HAIR_PHYSICS = {  # defaults; the motion spec's physics.hair overrides them (properties of the character)
-    "cage_voxel": 0.045, "collider_voxel": 0.035,  # x height
-    "pin_top": 0.12, "pin_free": 0.38,            # below the crown, x height: pinned above pin_top, loosest below pin_free
-    "pin_min": 0.25,                              # even the loosest hair is pulled back toward its shape (it springs back)
-    "gravity": 0.2,                               # the modelled shape already hangs; gravity only adds a little sag
-    "quality": 8, "mass": 0.15, "air_damping": 1.0, "tension": 30.0, "compression": 30.0, "shear": 15.0,
-    "bending": 20.0, "pin_stiffness": 3.0, "pressure": 5.0, "collision_distance": 0.01,
-}
-
-
-def _part_copy(body, keep, name, voxel, one_piece=False):
-    """A closed coarse copy of part of the body (voxel remesh of the kept vertices), not rendered."""
-    import bmesh
-
-    obj = body.copy()
-    obj.data = body.data.copy()
-    obj.name = name
-    obj.modifiers.clear()
-    obj.vertex_groups.clear()
-    obj.parent = None
-    bpy.context.collection.objects.link(obj)
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    bm.verts.ensure_lookup_table()
-    bmesh.ops.delete(bm, geom=[bm.verts[i] for i in np.nonzero(~keep)[0]], context="VERTS")
-    bm.to_mesh(obj.data)
-    bm.free()
-    rm = obj.modifiers.new("Remesh", "REMESH")
-    rm.mode, rm.voxel_size = "VOXEL", voxel
-    bpy.ops.object.select_all(action="DESELECT")
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-    bpy.ops.object.modifier_apply(modifier=rm.name)
-    # clean, all-triangle surface (Surface Deform rejects concave or degenerate polygons)
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=voxel * 0.05)
-    bmesh.ops.dissolve_degenerate(bm, dist=voxel * 0.05, edges=bm.edges)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
-    bad = [e for e in bm.edges if len(e.link_faces) > 2]
-    if bad:
-        bmesh.ops.delete(bm, geom=list({f for e in bad for f in e.link_faces}), context="FACES")
-    # one piece only: a loose piece of a simulated shell has nothing holding it and would fall away
-    islands, seen = [], set()
-    for v in bm.verts:
-        if v in seen:
-            continue
-        stack, comp = [v], []
-        while stack:
-            x = stack.pop()
-            if x in seen:
-                continue
-            seen.add(x)
-            comp.append(x)
-            stack.extend(e.other_vert(x) for e in x.link_edges)
-        islands.append(comp)
-    islands.sort(key=len, reverse=True)
-    if one_piece and len(islands) > 1:
-        bmesh.ops.delete(bm, geom=[v for comp in islands[1:] for v in comp], context="VERTS")
-    print(f"{name}: {sum(map(len, islands))} vertices in {len(islands)} pieces" + (", kept the main one" if one_piece else ""))
-    bm.to_mesh(obj.data)
-    bm.free()
-    obj.data.materials.clear()
-    obj.hide_render = True
-    obj.display_type = "WIRE"
-    return obj
-
-
-def add_hair_physics(body, rig, co, is_hair, W, deform, height, phys):
-    from scipy.spatial import cKDTree
-
-    p = {**HAIR_PHYSICS, **phys}
-    # the body (and arms) the hair collides with, deformed by the rig like the body
-    col = _part_copy(body, ~is_hair, "BodyCollider", p["collider_voxel"] * height)
-    cco = np.array([v.co[:] for v in col.data.vertices])
-    _, nn = cKDTree(co[~is_hair]).query(cco, k=1)
-    Wn = W[~is_hair][nn]
-    for j, n in enumerate(deform):
-        g = col.vertex_groups.new(name=n)
-        for vi in np.nonzero(Wn[:, j] > 1e-3)[0]:
-            g.add([int(vi)], float(Wn[vi, j]), "REPLACE")
-    am = col.modifiers.new("Armature", "ARMATURE")
-    am.object = rig
-    col.modifiers.new("Collision", "COLLISION")
-    col.collision.thickness_outer = p["collision_distance"]
-    col.parent = rig
-
-    # the hair shell: follows the head, pinned at the scalp, free toward the ends
-    cage = _part_copy(body, is_hair, "HairCage", p["cage_voxel"] * height, one_piece=True)
-    gco = np.array([v.co[:] for v in cage.data.vertices])
-    crown = float(co[is_hair, 2].max())
-    z_pin, z_free = crown - p["pin_top"] * height, crown - p["pin_free"] * height
-    pin = np.clip((gco[:, 2] - z_free) / (z_pin - z_free), 0, 1)
-    pin = p["pin_min"] + (1 - p["pin_min"]) * pin * pin * (3 - 2 * pin)
-    gu = cage.vertex_groups.new(name="body_upper")
-    gu.add(list(range(len(gco))), 1.0, "REPLACE")
-    gp = cage.vertex_groups.new(name="pin")
-    for vi in range(len(gco)):
-        gp.add([vi], float(pin[vi]), "REPLACE")
-    am = cage.modifiers.new("Armature", "ARMATURE")
-    am.object = rig
-    cl = cage.modifiers.new("Cloth", "CLOTH")
-    st = cl.settings
-    st.quality, st.mass, st.air_damping = int(p["quality"]), p["mass"], p["air_damping"]
-    st.tension_stiffness, st.compression_stiffness = p["tension"], p["compression"]
-    st.shear_stiffness, st.bending_stiffness = p["shear"], p["bending"]
-    st.vertex_group_mass, st.pin_stiffness = "pin", p["pin_stiffness"]
-    st.use_pressure, st.uniform_pressure_force = True, p["pressure"]
-    st.effector_weights.gravity = p["gravity"]
-    cl.collision_settings.use_collision = True
-    cl.collision_settings.distance_min = p["collision_distance"]
-    cl.point_cache.frame_start, cl.point_cache.frame_end = 1, 100000
-    cage.parent = rig
-    print(f"hair physics: shell {len(gco)} vertices ({int((pin > 0.99).sum())} fully pinned), collider {len(cco)}")
-
-    # the real hair follows the shell
-    # only points inside the hair mass (dark brown details on the face, like eyelashes, stay on the face)
-    near, _ = cKDTree(gco).query(co, k=1)
-    in_mass = is_hair & (near < 1.5 * p["cage_voxel"] * height)
-    hg = body.vertex_groups.new(name="hair_sim")
-    for vi in np.nonzero(in_mass)[0]:
-        hg.add([int(vi)], 1.0, "REPLACE")
-    print(f"hair points following the simulation: {int(in_mass.sum())} of {int(is_hair.sum())}")
-    sd = body.modifiers.new("HairSim", "SURFACE_DEFORM")
-    sd.target = cage
-    sd.vertex_group = "hair_sim"
-    bpy.ops.object.select_all(action="DESELECT")
-    bpy.context.view_layer.objects.active = body
-    body.select_set(True)
-    bpy.ops.object.surfacedeform_bind(modifier=sd.name)
-    print(f"hair bound to its shell: {sd.is_bound}")
 
 
 # ------------------------------------------------------------------ build
@@ -439,14 +302,6 @@ def main():
     for pb in rig.pose.bones:
         pb.rotation_mode = "XYZ"
 
-    spec_path = a.spec or os.path.join(os.path.dirname(os.path.abspath(a.out)),
-                                       os.path.basename(a.out).split("_")[0] + "_motion_spec.json")
-    phys = {}
-    if os.path.exists(spec_path):
-        with open(spec_path) as f:
-            phys = json.load(f).get("physics", {}).get("hair", {})
-    add_hair_physics(body, rig, co, is_hair, W, deform, height, phys)
-
     # frame the character with room for raised arms (portrait, like a phone dance clip)
     cam = bpy.context.scene.camera
     if cam is not None:
@@ -461,7 +316,7 @@ def main():
     info = {
         "name": os.path.basename(a.out),
         "kind": "3D model rigged from its motion spec (rig_soft.py): base-pivot body, sliding shoulder sockets, "
-                "3-bone B-bone arms, cloth-simulated hair; mesh unchanged, heat weights",
+                "3-bone B-bone arms; hair moves with the head; mesh unchanged, heat weights",
         "height_m": round(height, 3),
         "root_bone": "root",
         "bones": [{"name": b.name, "parent": b.parent.name if b.parent else None, "deform": b.use_deform,

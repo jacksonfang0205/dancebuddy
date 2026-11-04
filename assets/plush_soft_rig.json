@@ -1,6 +1,6 @@
 {
  "name": "plush_soft",
- "kind": "3D model rigged from its motion spec (rig_soft.py): base-pivot body, sliding shoulder sockets, 3-bone B-bone arms, cloth-simulated hair; mesh unchanged, heat weights",
+ "kind": "3D model rigged from its motion spec (rig_soft.py): base-pivot body, sliding shoulder sockets, 3-bone B-bone arms; hair moves with the head; mesh unchanged, heat weights",
  "height_m": 1.436,
  "root_bone": "root",
  "bones": [

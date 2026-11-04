@@ -7,7 +7,7 @@ What the body can do is copied frame by frame; what it cannot is translated (ass
              and smoothly compressed near the character's limits (never cut flat, so peaks keep their timing)
   * legs   : no legs -> every jump, kick, step, squat and move across is translated (legs.py) into hops,
              squash and stretch, leans and slides of the body
-  * hair   : not driven here: it is physically simulated in Blender (cloth shell, see blender/rig_soft.py)
+  * hair   : not animated: it moves with the head
   * groove : a beat-synced wiggle of the soft body (sway, twist, upper-body counter-bend, a squash pulse)
 
 Output is a curves.json with quaternion channels (`<bone>.quat`, [w, x, y, z] in the bone's rest frame) plus

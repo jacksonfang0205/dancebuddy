@@ -84,7 +84,7 @@
  },
  "rig": {
   "file": "plush_soft.blend, made by blender/rig_soft.py from plush.blend (the mesh is not edited)",
-  "how": "designed from the connections above: root at the base of the body; a hidden shoulder bone per arm whose turn slides the seam up the body side; 3 B-bones per arm, with the weight moving from the shoulder to the arm over the first quarter of the arm so the arm bends at its own root like a soft tube; a narrow band of body around the seam follows the shoulder; hair simulated as a cloth shell (pinned at the scalp, gravity, inertia, inner pressure, collisions with the body) that the real hair follows. Body and hair weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
+  "how": "designed from the connections above: root at the base of the body; a hidden shoulder bone per arm whose turn slides the seam up the body side; 3 B-bones per arm, with the weight moving from the shoulder to the arm over the first quarter of the arm so the arm bends at its own root like a soft tube; a narrow band of body around the seam follows the shoulder; the hair has no bones of its own and moves with the head. Body and hair weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
   "driven_by": "dancebuddy/retarget.py"
  },
  "known_gaps": [
@@ -92,27 +92,5 @@
   "a raised arm gets thinner at its root",
   "hands to the face and an arm across the whole chest do not reach as far as in the reference",
   "hands do not ball up into fists; no facial expression"
- ],
- "physics": {
-  "_note": "physical properties of the character, set once with a standard test motion (tools/test_motion.py), never tuned to a particular dance",
-  "hair": {
-   "description": "a heavy mop of soft curls: fixed at the scalp, looser toward the ends; it swings with the body's moves (follow-through), then springs back to its shape; it never passes through the body",
-   "cage_voxel": 0.045,
-   "collider_voxel": 0.035,
-   "pin_top": 0.12,
-   "pin_free": 0.38,
-   "pin_min": 0.25,
-   "gravity": 0.2,
-   "quality": 8,
-   "mass": 0.15,
-   "air_damping": 1.0,
-   "tension": 30.0,
-   "compression": 30.0,
-   "shear": 15.0,
-   "bending": 20.0,
-   "pin_stiffness": 3.0,
-   "pressure": 5.0,
-   "collision_distance": 0.01
-  }
- }
+ ]
 }
