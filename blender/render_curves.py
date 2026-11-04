@@ -93,6 +93,15 @@ def main():
             pb.keyframe_insert("location", frame=f + 1)
             pb.keyframe_insert("scale", frame=f + 1)
 
+    # cloth (e.g. simulated hair) is computed frame by frame from the start
+    cloth = [m for o in bpy.data.objects for m in o.modifiers if m.type == "CLOTH"]
+    if cloth:
+        for m in cloth:
+            m.point_cache.frame_start, m.point_cache.frame_end = 1, n
+        for f in range(1, n + 1):
+            scene.frame_set(f)
+        print(f"simulated cloth on {len(cloth)} object(s) over {n} frames")
+
     if a.save_blend:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(a.save_blend))
     setup_render(a.engine, a.width, a.height)

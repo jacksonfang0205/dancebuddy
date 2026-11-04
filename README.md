@@ -154,9 +154,12 @@ uv run python -m dancebuddy compose runs/my --systems copy
   the 3D depth is damped), kept in front of the hair and the body; the shoulder socket slides up as the arm rises;
   each arm bends as one even arc. The body takes the dancer's turn, side tilt and lean at full size, compressed
   smoothly near the character's limits (never cut flat). Hair trails the body.
-- **Secondary motion and groove** (`retarget.py`). Each of the seven hair strands is a damped spring chain hanging
-  from the moving head (it trails, overshoots and settles; strands have slightly different stiffness so the curls
-  do not move as one block). On top of the copied motion the soft body grooves on the beat: side sway, a twist a
+- **Hair physics** (`blender/rig_soft.py`, `render_curves.py`). The hair is simulated, not animated: a coarse closed
+  shell around it is a cloth pinned at the scalp (looser toward the ends, always pulled back toward its shape), with
+  inertia, a little gravity, inner pressure and collisions with the body; the real hair follows the shell (Surface
+  Deform). Its physical properties are character properties in the motion spec (`physics.hair`), set once with a
+  standard test motion (`tools/test_motion.py`: hop, quick turns, tilt) and never tuned to a dance.
+- **Groove** (`retarget.py`). On top of the copied motion the soft body grooves on the beat: side sway, a twist a
   quarter beat later, an upper-body counter-bend and a small squash pulse, toned down during the dancer's big moves.
 - **Leg translation** (`dancebuddy/legs.py`). The character has no legs, so every leg movement is turned into a
   visible movement of the body before any renderer or video model sees the motion: jumps (wind-up squash, stretch,
@@ -202,7 +205,7 @@ dancebuddy/        perception, signals, beats, primitives, checks, video_metrics
                    CLI (__main__.py)
 blender/           make_capsule.py, render_curves.py, scene_utils.py (run with bpy or blender -b -P)
 examples/          handwritten plans for the synthetic dancer (`_follow.json` uses the follow primitive)
-tools/             measure_reference_video.py (motion style from a reference video)
+tools/             measure_reference_video.py (motion style from a reference video), test_motion.py (physics check)
 tests/             fast tests with a synthetic dancer and a scripted model
 assets/            generated character files (capsule.blend, rig, views, card)
 runs/              one directory per clip
