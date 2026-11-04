@@ -152,8 +152,12 @@ uv run python -m dancebuddy compose runs/my --systems copy
   by position; parts are found from the base-colour texture (blue = arms, dark brown = hair).
 - **Retarget** (`dancebuddy/retarget.py`). Arm directions come from the picture (monocular depth is unreliable, so
   the 3D depth is damped), kept in front of the hair and the body; the shoulder socket slides up as the arm rises;
-  the body takes the dancer's turn, side tilt and lean, gentler; hair trails the body. Output: `<bone>.quat`,
-  `<bone>.loc`, `root.lift`, `root.squash` channels.
+  each arm bends as one even arc. The body takes the dancer's turn, side tilt and lean at full size, compressed
+  smoothly near the character's limits (never cut flat). Hair trails the body.
+- **Leg translation** (`dancebuddy/legs.py`). The character has no legs, so every leg movement is turned into a
+  visible movement of the body before any renderer or video model sees the motion: jumps (wind-up squash, stretch,
+  hop, landing squash), kicks (lean away from the leg), steps (bob, lean onto the step), squats, rising on the
+  toes, and moving across the floor (slide). The events found are saved in `curves.json` (`leg_events`).
 
 ## Metrics (`eval`)
 

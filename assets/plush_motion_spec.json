@@ -79,7 +79,7 @@
   "upper_arms_and_forearms": "copy their direction as seen in the picture; the forearm becomes the bend of the soft arm",
   "torso": "copy turn, side tilt and lean, gentler than the dancer",
   "head": "merged with the body: nods and tilts become small body tilts",
-  "legs, steps, kicks": "no legs: a kick tilts the body away from the leg; steps and knee bends become bobs with squash; a jump becomes a hop",
+  "legs, steps, kicks": "no legs, so every leg movement is translated before anything else sees the motion (dancebuddy/legs.py): a jump becomes squash to wind up, stretch and a clear hop, squash on landing; a kick becomes a big lean away from the kicking leg with a small hop; a step becomes a small bob with a lean onto the stepping side; a squat becomes squash, rising on the toes a stretch; moving across the floor becomes a slide",
   "hips": "hip sway becomes a sideways shift and a small tilt"
  },
  "rig": {

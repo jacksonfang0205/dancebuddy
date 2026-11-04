@@ -3,12 +3,14 @@
 What the body can do is copied frame by frame; what it cannot is translated (assets/<name>_motion_spec.json):
   * arms   : the dancer's upper-arm direction drives the first arm bone, the forearm direction bends the soft arm
              (bones 2 and 3); arms are kept in front of the hair and the body
-  * body   : the dancer's torso turn / side tilt / forward lean drive the whole body around its base, scaled down
-  * legs   : no legs -> hip bounce becomes lift (up) and squash (down); a kick tilts the body away from the leg
+  * body   : the dancer's torso turn / side tilt / forward lean drive the whole body around its base, at full size
+             and smoothly compressed near the character's limits (never cut flat, so peaks keep their timing)
+  * legs   : no legs -> every jump, kick, step, squat and move across is translated (legs.py) into hops,
+             squash and stretch, leans and slides of the body
   * hair   : never driven directly; it keeps the body's orientation from a moment ago (lag), i.e. it trails
 
 Output is a curves.json with quaternion channels (`<bone>.quat`, [w, x, y, z] in the bone's rest frame) plus
-`root.lift` and `root.squash`, rendered by blender/render_curves.py.
+`root.loc` (slide across, hop) and `root.squash`, rendered by blender/render_curves.py.
 """
 
 from __future__ import annotations
@@ -19,10 +21,13 @@ from scipy.spatial.transform import Rotation as Rot
 from .beats import smooth
 from .perception import L_EL, L_HIP, L_SH, L_WR, R_EL, R_HIP, R_SH, R_WR
 
-# amplitudes from the motion spec: body follows the dancer, scaled down and within the character's range
-BODY = {"turn_gain": 0.7, "turn_max": 35.0, "side_gain": 0.7, "side_max": 14.0, "lean_gain": 0.4, "lean_max": 10.0,
-        "kick_tilt_deg_per_torso": 20.0, "kick_tilt_max": 10.0,
-        "lift_per_torso": 0.25, "lift_max": 0.12, "squash_per_torso": 0.2, "squash_max": 0.06}
+# the character's range (motion spec "can_do"): the dancer is copied at full size and compressed softly near these
+BODY = {"turn_max": 60.0, "side_max": 25.0, "lean_max": 20.0}
+
+
+def soft_limit(x: np.ndarray, limit: float) -> np.ndarray:
+    """Full size for small values, smoothly compressed toward the limit (peaks keep their timing)."""
+    return limit * np.tanh(np.asarray(x, float) / limit)
 # arm directions: in-plane from the image (reliable), depth from the 3D estimate (monocular depth is not)
 ARM_DEPTH_GAIN = 0.4
 HAIR = {"lag_s": 0.24, "follow": 0.6, "max_deg": 12.0, "share": (0.2, 0.5, 0.3)}
@@ -38,7 +43,7 @@ STYLE = {"straight_above_deg": 120,         # raised arms straighten out (refere
          "forearm_lag_s": 0.07,             # the end of the arm trails the upper arm a little
          "follow_tilt_deg": 6.0,            # the body leans toward the higher arm...
          "follow_delay_s": 0.4,             # ...about this long after the arms move
-         "stretch_per_torso": 0.03, "stretch_max": 0.05}   # per torso length per second of rising
+         }
 
 
 def _norm(v):
@@ -184,8 +189,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
     if signals is None:
         from .signals import compute_signals
         signals = compute_signals(kp)
-    bounce = np.asarray(signals["hip_bounce"], float)
-    kick = np.asarray(signals["foot_R_lift"], float) - np.asarray(signals["foot_L_lift"], float)
+    from .legs import translate as translate_legs
+    legs = translate_legs(kp, signals)
+    height = float(rig.get("height_m", 1.4))
 
     # ---- body: turn, side tilt, forward lean of the dancer's torso, scaled to the character
     X, Z = T[:, :, 0], T[:, :, 2]
@@ -196,11 +202,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
         z = Rot.from_euler("z", -turn[i], degrees=True).apply(Z[i])
         side.append(np.degrees(np.arctan2(z[0], z[2])))       # + = tilt toward the character's left (+X)
         lean.append(np.degrees(np.arctan2(-z[1], z[2])))      # + = forward (toward the camera, -Y)
-    side = smooth(np.array(side), 2.0) * BODY["side_gain"]
-    side += np.clip(kick * BODY["kick_tilt_deg_per_torso"], -BODY["kick_tilt_max"], BODY["kick_tilt_max"])
-    side = np.clip(side, -BODY["side_max"], BODY["side_max"])
-    lean = np.clip(smooth(np.array(lean), 2.0) * BODY["lean_gain"], -BODY["lean_max"], BODY["lean_max"])
-    turn = np.clip(turn * BODY["turn_gain"], -BODY["turn_max"], BODY["turn_max"])
+    side = smooth(np.array(side), 1.0) + legs["tilt"]
+    lean = soft_limit(smooth(np.array(lean), 1.0), BODY["lean_max"])
+    turn = soft_limit(turn, BODY["turn_max"])
 
     # arm directions (image-based in the picture plane), in Blender axes
     aspect = image_aspect(kp)
@@ -212,22 +216,17 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
     delay = int(round(STYLE["follow_delay_s"] * fps))
     diff = arm_up["L"] - arm_up["R"]
     follow = np.r_[np.full(delay, diff[0]), diff[:n - delay]] if delay < n else np.zeros(n)
-    side = np.clip(side + STYLE["follow_tilt_deg"] * smooth(follow, 3.0), -BODY["side_max"], BODY["side_max"])
+    side = soft_limit(side + STYLE["follow_tilt_deg"] * smooth(follow, 3.0), BODY["side_max"])
     body = [Rot.from_euler("z", turn[i], degrees=True) * Rot.from_euler("y", side[i], degrees=True)
             * Rot.from_euler("x", lean[i], degrees=True) for i in range(n)]
 
-    lift = np.clip(bounce * BODY["lift_per_torso"], 0, BODY["lift_max"])
-    squash = np.clip(-bounce * BODY["squash_per_torso"], 0, BODY["squash_max"])
-    # stretch on the way up (negative squash), squash on the way down
-    rising = np.gradient(smooth(bounce, 1.5)) * fps  # torso lengths per second
-    squash = squash - np.clip(rising * STYLE["stretch_per_torso"], 0, STYLE["stretch_max"])
-
-    ch: dict[str, list] = {k: [] for k in ["root.quat", "root.lift", "root.squash"]}
+    ch: dict[str, list] = {k: [] for k in ["root.quat", "root.loc", "root.squash"]}
     ident = Rot.identity()
     for i in range(n):
         ch["root.quat"].append(_local(M["root"], ident, body[i]))
-    ch["root.lift"] = [round(float(x), 4) for x in lift]
-    ch["root.squash"] = [round(float(x), 4) for x in squash]
+        # root rest frame: x = across (character's left), y = up
+        ch["root.loc"].append([round(float(legs["shift"][i] * height), 4), round(float(legs["lift"][i] * height), 4), 0.0])
+    ch["root.squash"] = [round(float(x), 4) for x in legs["squash"]]
 
     # ---- arms: copied in the torso frame (the body bones already carry the body rotation)
     for side_name, sign, (sh, el, wr) in (("L", 1, (L_SH, L_EL, L_WR)), ("R", -1, (R_SH, R_EL, R_WR))):
@@ -281,4 +280,6 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
                     parent = target
 
     return {"fps": fps, "n_frames": n, "character": rig.get("name", "character"), "channels": ch,
-            "retarget": {"body": BODY, "hair": HAIR, "style": STYLE}}
+            "retarget": {"body": BODY, "hair": HAIR, "style": STYLE},
+            "leg_events": [{k: (int(v) if isinstance(v, (int, np.integer)) else v) for k, v in ev.items()}
+                           for ev in legs["events"]]}
