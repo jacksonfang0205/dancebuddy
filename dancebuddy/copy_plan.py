@@ -5,7 +5,8 @@ is used, how each leg event is translated, and which accents get an extra emphas
 (every knob at its default) reproduces the plain copy exactly.
 
   units[]     body (x dancer's torso turn/tilt/lean), arms (x how far the arms move from their rest pose),
-              groove (x beat wiggle), head (x the dancer's head nods and tilts moved onto the upper body)
+              groove (x beat wiggle), head (x the dancer's head nods and tilts moved onto the upper body),
+              travel (x the slide across the floor)
   legs[]      per leg event (index from get_leg_events): skip it, or scale its translation
   emphasis[]  an extra move on an accent frame: squash, hop, nod, tilt_left, tilt_right, twist
 """
@@ -21,6 +22,7 @@ KNOBS = {  # name: (default, min, max, meaning)
     "arms": (1.0, 0.5, 1.4, "x how far the arms move away from their rest pose (>1 exaggerates)"),
     "groove": (1.0, 0.0, 2.0, "x the beat-synced wiggle of the soft body"),
     "head": (0.0, 0.0, 1.5, "x the dancer's head nods and tilts, moved onto the upper body (the character has no neck)"),
+    "travel": (1.0, 0.0, 1.5, "x how far the character slides across when the dancer moves across the floor"),
 }
 EMPHASIS_MOVES = {  # move: (what it does, full size)
     "squash": ("the body squashes on the accent", 0.15),

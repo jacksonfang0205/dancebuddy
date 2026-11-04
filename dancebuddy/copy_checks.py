@@ -82,7 +82,11 @@ def run_copy_checks(curves: dict, score: dict, rig: dict, spec: dict | None = No
             problems.append(f"the character moves {ratio:.2f}x as much as the dancer here (relative to each one's "
                             "average): the copy eats this move")
         if outs:
-            problems.append(f"the character leaves the picture on {len(outs)} frames (slide + tilt too big)")
+            worst = max(outs, key=lambda f: reach[f])
+            problems.append(f"the character leaves the picture on {len(outs)} frames; at the worst frame ({worst}) "
+                            f"the slide is {abs(loc[worst, 0]):.2f} m and the body tilt moves its top "
+                            f"{0.7 * height * abs(up[worst, 0]):.2f} m sideways (limit together "
+                            f"{THRESHOLDS['frame_margin'] * height:.2f} m)")
         if tilt[s:e].max() > tilt_max:
             problems.append(f"body tilt reaches {tilt[s:e].max():.0f} deg, beyond what the character can do")
         units.append({"unit_id": u["id"], "time_s": [u["start_s"], u["end_s"]], "dancer": u.get("label"),

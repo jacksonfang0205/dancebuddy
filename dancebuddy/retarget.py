@@ -275,7 +275,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
     for i in range(n):
         ch["root.quat"].append(_local(M["root"], ident, body[i]))
         # root rest frame: x = across (character's left), y = up
-        ch["root.loc"].append([round(float(legs["shift"][i] * height), 4),
+        ch["root.loc"].append([round(float(legs["shift"][i] * knob["travel"][i] * height), 4),
                                round(float((legs["lift"][i] + emph["lift"][i]) * height), 4), 0.0])
     ch["root.squash"] = [round(float(x), 4) for x in np.clip(legs["squash"] + gv["pulse"] + emph["squash"], -0.1, 0.25)]
     if "body_upper" in M:
