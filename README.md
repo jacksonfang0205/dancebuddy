@@ -154,6 +154,10 @@ uv run python -m dancebuddy compose runs/my --systems copy
   the 3D depth is damped), kept in front of the hair and the body; the shoulder socket slides up as the arm rises;
   each arm bends as one even arc. The body takes the dancer's turn, side tilt and lean at full size, compressed
   smoothly near the character's limits (never cut flat). Hair trails the body.
+- **Secondary motion and groove** (`retarget.py`). Each of the seven hair strands is a damped spring chain hanging
+  from the moving head (it trails, overshoots and settles; strands have slightly different stiffness so the curls
+  do not move as one block). On top of the copied motion the soft body grooves on the beat: side sway, a twist a
+  quarter beat later, an upper-body counter-bend and a small squash pulse, toned down during the dancer's big moves.
 - **Leg translation** (`dancebuddy/legs.py`). The character has no legs, so every leg movement is turned into a
   visible movement of the body before any renderer or video model sees the motion: jumps (wind-up squash, stretch,
   hop, landing squash), kicks (lean away from the leg), steps (bob, lean onto the step), squats, rising on the

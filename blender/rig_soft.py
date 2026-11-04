@@ -5,7 +5,7 @@ The rig follows the character's motion spec (assets/<name>_motion_spec.json), wh
   * shoulders : arm_X_0, hidden in the body and not deforming; turning it slides the arm's root up the body side
                 (a raised arm starts beside the face)
   * arms      : arm_X_1..3, B-bones, so each arm bends as one smooth curve (no elbow)
-  * hair      : a chain down the back and one on each side; driven as a lag of the body (secondary motion)
+  * hair      : seven 3-bone strands around the head; driven by a spring simulation (secondary motion)
 
 The mesh is never edited. Parts are found from the base-colour texture (arms = blue, hair = dark brown). Weights
 come from Blender's heat diffusion ("automatic weights") computed on a closed voxel copy of the body (generated
@@ -171,14 +171,22 @@ def main():
     hp = co[is_hair]
     crown = float(hp[:, 2].max())
     halfw = float(np.percentile(np.abs(hp[:, 0] - cx), 95))
-    chains = {"hair": hair_chain(hp, lambda b: (np.abs(b[:, 0] - cx) < 0.3 * halfw) & (b[:, 1] > cy),
-                                 crown - 0.1 * height, float(np.percentile(hp[:, 2], 3)), 3)}
-    for side, sign in (("L", 1), ("R", -1)):
-        side_sel = lambda b, s=sign: s * (b[:, 0] - cx) > 0.6 * halfw  # noqa: E731
-        sh = hp[side_sel(hp)]
-        if len(sh) > 50:
-            chains[f"hair_{side}"] = hair_chain(hp, side_sel, float(np.percentile(sh[:, 2], 90)),
-                                                float(np.percentile(sh[:, 2], 3)), 2)
+    # hair: one 3-bone strand per direction around the head, so curls in different places move apart
+    upper_body = co[is_body & (co[:, 2] > 0.6 * height)]
+    hx, hy = float(upper_body[:, 0].mean()), float(upper_body[:, 1].mean())
+    ang = np.degrees(np.arctan2(hp[:, 0] - hx, hp[:, 1] - hy))      # 0 = back, +-90 = sides, +-180 = front
+    lo_a, hi_a = np.percentile(ang, [3, 97])
+    chains = {}
+    edges = np.linspace(lo_a, hi_a, 8)
+    for k in range(7):
+        in_sec = lambda b, a0=edges[k], a1=edges[k + 1]: (  # noqa: E731
+            (np.degrees(np.arctan2(b[:, 0] - hx, b[:, 1] - hy)) >= a0)
+            & (np.degrees(np.arctan2(b[:, 0] - hx, b[:, 1] - hy)) < a1))
+        sec = hp[in_sec(hp)]
+        if len(sec) < 200:
+            continue
+        chains[f"hair_s{k}"] = hair_chain(hp, in_sec, float(np.percentile(sec[:, 2], 85)),
+                                          float(np.percentile(sec[:, 2], 3)), 3)
     print("hair chains:", {k: (len(v) - 1 if v else 0) for k, v in chains.items()})
 
     # ---- armature

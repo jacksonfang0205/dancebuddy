@@ -146,7 +146,9 @@ def cmd_copy(a):
     from .retarget import retarget
     run_dir = Path(a.run)
     rig = load(Path(str(a.char) + "_rig.json"))
-    curves = retarget(load_keypoints(run_dir / "keypoints.npz"), rig)
+    score = run_dir / "dance_score.json"
+    beats = load(score)["beats"] if score.exists() else None
+    curves = retarget(load_keypoints(run_dir / "keypoints.npz"), rig, beats=beats)
     out = run_dir / a.name
     out.mkdir(exist_ok=True)
     (out / "curves.json").write_text(json.dumps(curves))

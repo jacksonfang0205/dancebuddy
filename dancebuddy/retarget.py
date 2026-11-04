@@ -7,7 +7,9 @@ What the body can do is copied frame by frame; what it cannot is translated (ass
              and smoothly compressed near the character's limits (never cut flat, so peaks keep their timing)
   * legs   : no legs -> every jump, kick, step, squat and move across is translated (legs.py) into hops,
              squash and stretch, leans and slides of the body
-  * hair   : never driven directly; it keeps the body's orientation from a moment ago (lag), i.e. it trails
+  * hair   : never driven directly; each strand is a spring hanging from the moving head (it trails, overshoots
+             and settles)
+  * groove : a beat-synced wiggle of the soft body (sway, twist, upper-body counter-bend, a squash pulse)
 
 Output is a curves.json with quaternion channels (`<bone>.quat`, [w, x, y, z] in the bone's rest frame) plus
 `root.loc` (slide across, hop) and `root.squash`, rendered by blender/render_curves.py.
@@ -30,7 +32,13 @@ def soft_limit(x: np.ndarray, limit: float) -> np.ndarray:
     return limit * np.tanh(np.asarray(x, float) / limit)
 # arm directions: in-plane from the image (reliable), depth from the 3D estimate (monocular depth is not)
 ARM_DEPTH_GAIN = 0.4
-HAIR = {"lag_s": 0.24, "follow": 0.6, "max_deg": 12.0, "share": (0.2, 0.5, 0.3)}
+# hair: each strand is a damped spring chain following the head (inertia, overshoot, settling); strands get
+# slightly different stiffness so the curls do not swing as one block
+HAIR = {"freq_hz": 3.2, "freq_spread": 0.3, "damping": 0.55, "max_deg": (30.0, 22.0, 15.0)}  # per bone, root->tip
+# groove: a beat-synced wiggle of the soft body (sway and twist a quarter beat apart, upper body bending the
+# other way a moment later), backing off while the dancer's own body moves a lot
+GROOVE = {"tilt_deg": 5.0, "twist_deg": 7.0, "bend_deg": 5.0, "bend_delay_s": 0.08, "pulse_squash": 0.03,
+          "busy_deg": 15.0}
 # style from the spec's "tends_to": arms lead and the body follows, soft arms, squash low / stretch high
 STYLE = {"straight_above_deg": 120,         # raised arms straighten out (reference: arms up are straight)
          "bend_share": 0.8,                 # how much of the dancer's elbow bend the soft arm takes, as one arc
@@ -174,7 +182,75 @@ def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int,
     return quats, 1.0  # the arm keeps its length; the `stretch` channel is there for characters that need it
 
 
-def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
+def beat_phase(n: int, beats: list[int]) -> np.ndarray:
+    """Continuous beat count per frame (k at the k-th beat), extrapolated with the median beat period."""
+    b = sorted(int(x) for x in beats)
+    if len(b) < 2:
+        return np.arange(n) / 15.0
+    period = float(np.median(np.diff(b)))
+    xs = np.r_[b[0] - period * 50, b, b[-1] + period * 50]
+    ks = np.r_[-50, np.arange(len(b)), len(b) - 1 + 50]
+    return np.interp(np.arange(n), xs, ks)
+
+
+def groove(n: int, fps: float, beats: list[int] | None, busy: np.ndarray) -> dict:
+    """Beat-synced wiggle: side sway (one side per beat), twist a quarter beat later, an upper-body counter-bend,
+    and a small squash pulse on each beat; scaled down while the body is busy with the dancer's own moves."""
+    if not beats:
+        z = np.zeros(n)
+        return {"tilt": z, "twist": z, "bend": z, "pulse": z}
+    ph = beat_phase(n, beats)
+    amp = 1.0 - 0.7 * np.clip(busy / GROOVE["busy_deg"], 0, 1)
+    sway = np.sin(np.pi * ph)
+    tilt = GROOVE["tilt_deg"] * amp * sway
+    twist = GROOVE["twist_deg"] * amp * np.sin(np.pi * ph - np.pi / 2)
+    d = max(1, int(round(GROOVE["bend_delay_s"] * fps)))
+    bend = -GROOVE["bend_deg"] * np.r_[np.zeros(d), (amp * sway)[:-d]]
+    frac = ph % 1.0
+    pulse = GROOVE["pulse_squash"] * amp * np.exp(-0.5 * (np.minimum(frac, 1 - frac) / 0.12) ** 2)
+    return {"tilt": tilt, "twist": twist, "bend": bend, "pulse": pulse}
+
+
+def hair_springs(M: dict, chains: list[list[str]], body: list[Rot], upper: list[Rot], loc: np.ndarray,
+                 fps: float) -> dict[str, list]:
+    """Simulate each hair strand as a damped spring chain hanging from the moving head."""
+    p_root = np.array(M["root__head"], float)
+    p_up = np.array(M["body_upper__head"], float)
+    n, dt, sub = len(body), 1.0 / fps, 4
+    out = {nm: [] for c in chains for nm in c}
+
+    def attached(x, i):  # where a point fixed to the upper body is at frame i (armature space)
+        return loc[i] + p_root + body[i].apply(p_up + upper[i].apply(x - p_up) - p_root)
+
+    for ci, chain in enumerate(chains):
+        w0 = 2 * np.pi * HAIR["freq_hz"] * (1 + HAIR["freq_spread"] * (((ci * 0.618) % 1.0) - 0.5))
+        rest = [_norm(np.array(M[f"{nm}__tail"]) - np.array(M[f"{nm}__head"])) for nm in chain]
+        lens = [float(np.linalg.norm(np.array(M[f"{nm}__tail"]) - np.array(M[f"{nm}__head"]))) for nm in chain]
+        pos = [attached(np.array(M[f"{nm}__tail"], float), 0) for nm in chain]
+        vel = [np.zeros(3) for _ in chain]
+        for i in range(n):
+            parent = body[i] * upper[i]
+            head = attached(np.array(M[f"{chain[0]}__head"], float), i)
+            for j, nm in enumerate(chain):
+                rigid = parent.apply(rest[j])
+                target = head + rigid * lens[j]
+                for _ in range(sub):
+                    acc = w0 * w0 * (target - pos[j]) - 2 * HAIR["damping"] * w0 * vel[j]
+                    vel[j] = vel[j] + acc * dt / sub
+                    pos[j] = pos[j] + vel[j] * dt / sub
+                d = _norm(pos[j] - head)
+                ang = np.arccos(np.clip(np.dot(d, rigid), -1, 1))
+                lim = np.radians(HAIR["max_deg"][min(j, len(HAIR["max_deg"]) - 1)])
+                if ang > lim:  # keep the strand out of the head
+                    d = _norm(rigid + (d - rigid * np.dot(d, rigid)) / max(np.sin(ang), 1e-6) * np.tan(lim))
+                pos[j] = head + d * lens[j]
+                c = _align(d, rigid) * parent
+                out[nm].append(_local(M[nm], parent, c))
+                parent, head = c, pos[j]
+    return out
+
+
+def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] | None = None) -> dict:
     fps = float(kp["fps"])
     w = to_blender(kp["world"])
     w = np.stack([np.stack([smooth(w[:, j, k], 1.5) for k in range(3)], -1) for j in range(w.shape[1])], 1)
@@ -217,8 +293,13 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
     diff = arm_up["L"] - arm_up["R"]
     follow = np.r_[np.full(delay, diff[0]), diff[:n - delay]] if delay < n else np.zeros(n)
     side = soft_limit(side + STYLE["follow_tilt_deg"] * smooth(follow, 3.0), BODY["side_max"])
+    busy = np.maximum.reduce([np.abs(side), np.abs(lean), np.abs(turn) / 2])
+    gv = groove(n, fps, beats, busy)
+    side = side + gv["tilt"]
+    turn = turn + gv["twist"]
     body = [Rot.from_euler("z", turn[i], degrees=True) * Rot.from_euler("y", side[i], degrees=True)
             * Rot.from_euler("x", lean[i], degrees=True) for i in range(n)]
+    upper_bend = [Rot.from_euler("y", gv["bend"][i], degrees=True) for i in range(n)]  # S-shaped wiggle
 
     ch: dict[str, list] = {k: [] for k in ["root.quat", "root.loc", "root.squash"]}
     ident = Rot.identity()
@@ -226,7 +307,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
         ch["root.quat"].append(_local(M["root"], ident, body[i]))
         # root rest frame: x = across (character's left), y = up
         ch["root.loc"].append([round(float(legs["shift"][i] * height), 4), round(float(legs["lift"][i] * height), 4), 0.0])
-    ch["root.squash"] = [round(float(x), 4) for x in legs["squash"]]
+    ch["root.squash"] = [round(float(x), 4) for x in legs["squash"] + gv["pulse"]]
+    if "body_upper" in M:
+        ch["body_upper.quat"] = [_local(M["body_upper"], ident, upper_bend[i]) for i in range(n)]
 
     # ---- arms: copied in the torso frame (the body bones already carry the body rotation)
     for side_name, sign, (sh, el, wr) in (("L", 1, (L_SH, L_EL, L_WR)), ("R", -1, (R_SH, R_EL, R_WR))):
@@ -253,33 +336,20 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None) -> dict:
                 ch[f"{nm}.quat"].append(q)
                 ch[f"{nm}.stretch"].append(st)
 
-    # ---- hair: trails the body (keeps where the body was a moment ago)
-    lag = max(1, int(round(HAIR["lag_s"] * fps)))
-    hair_chains = [[nm for nm in M if nm.startswith(pre) and nm[len(pre):].isdigit()]
-                   for pre in ("hair_", "hair_L_", "hair_R_")]
-    hair_chains = [sorted(c, key=lambda x: int(x.rsplit("_", 1)[1])) for c in hair_chains if c]
-    hair = [nm for c in hair_chains for nm in c]
-    if hair:
-        rots = Rot.concatenate(body)
-        for nm in hair:
-            ch[f"{nm}.quat"] = []
-        for i in range(n):
-            # how far the body has turned since a moment ago; the hair keeps a part of that (capped),
-            # spread over the chain (little at the scalp so it does not tear, most in the middle)
-            past = rots[max(0, i - lag)]
-            delta = (past * body[i].inv()).as_rotvec() * HAIR["follow"]
-            ang = np.linalg.norm(delta)
-            if ang > np.radians(HAIR["max_deg"]):
-                delta *= np.radians(HAIR["max_deg"]) / ang
-            for chain in hair_chains:
-                parent = body[i]
-                share = HAIR["share"] if len(chain) == 3 else (0.4, 0.6)
-                for k, nm in enumerate(chain):
-                    target = Rot.from_rotvec(delta * share[k]) * parent
-                    ch[f"{nm}.quat"].append(_local(M[nm], parent, target))
-                    parent = target
+    # ---- hair: spring strands hanging from the moving head
+    import re
+    groups: dict[str, list[tuple[int, str]]] = {}
+    for nm in M:
+        mt = re.fullmatch(r"(hair(?:_\w+?)?)_(\d+)", nm)
+        if mt:
+            groups.setdefault(mt.group(1), []).append((int(mt.group(2)), nm))
+    chains = [[nm for _, nm in sorted(v)] for _, v in sorted(groups.items())]
+    if chains:
+        loc = np.c_[legs["shift"] * height, np.zeros(n), legs["lift"] * height]
+        for nm, qs in hair_springs(M, chains, body, upper_bend, loc, fps).items():
+            ch[f"{nm}.quat"] = qs
 
     return {"fps": fps, "n_frames": n, "character": rig.get("name", "character"), "channels": ch,
-            "retarget": {"body": BODY, "hair": HAIR, "style": STYLE},
+            "retarget": {"body": BODY, "hair": HAIR, "style": STYLE, "groove": GROOVE},
             "leg_events": [{k: (int(v) if isinstance(v, (int, np.integer)) else v) for k, v in ev.items()}
                            for ev in legs["events"]]}
