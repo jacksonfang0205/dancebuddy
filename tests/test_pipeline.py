@@ -187,9 +187,14 @@ def test_copy_raises_the_arm_the_dancer_raises(synth):
     assert all(len(v) == curves["n_frames"] for v in curves["channels"].values())
     q = np.array(curves["channels"]["arm_L_1.quat"])
     assert np.allclose(np.linalg.norm(q, axis=1), 1, atol=1e-3)
-    bone = next(b for b in rig["bones"] if b["name"] == "arm_L_1")
-    M = Rot.from_matrix(np.array(bone["matrix"]))
-    direction = (M * Rot.from_quat(q[:, [1, 2, 3, 0]])).apply([0, 1, 0])  # bone axis in armature space
+    mat = {b["name"]: Rot.from_matrix(np.array(b["matrix"])) for b in rig["bones"]}
+    rot = Rot.from_quat(q[:, [1, 2, 3, 0]])
+    if "arm_L_0.quat" in curves["channels"]:  # the shoulder takes part of the turn: compose it
+        q0 = np.array(curves["channels"]["arm_L_0.quat"])
+        sh = mat["arm_L_0"] * Rot.from_quat(q0[:, [1, 2, 3, 0]]) * mat["arm_L_0"].inv()
+    else:
+        sh = Rot.identity(len(q))
+    direction = (sh * mat["arm_L_1"] * rot).apply([0, 1, 0])  # bone axis in armature space
     down, up = direction[half // 2], direction[half + half // 2]
     assert down[2] < -0.8 and up[2] > 0.5  # hanging vs raised
     assert up[1] < 0  # raised arm stays in front of the hair

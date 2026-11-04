@@ -40,9 +40,9 @@ STYLE = {"straight_above_deg": 120,         # raised arms straighten out (refere
          "bend_share": 0.8,                 # how much of the dancer's elbow bend the soft arm takes, as one arc
          # the shoulder is a socket that slides up the side of the body as the arm rises (reference: a raised
          # arm starts beside the face, a hanging arm beside the chest), so raised hands get above the head
-         "socket_slide_deg": 40.0,          # shoulder-bone turn that slides the socket up, for a vertical arm
-         "root_share": 0.0,                 # part of the arm's turn taken by the shoulder (0.4 pushed raised
-                                            # arms back into the hair, so it is off)
+         "socket_slide": 0.12,              # how far the seam slides up the body for a vertical arm (body heights)
+         "root_share": 0.5,                 # part of the arm's turn taken at the seam, so the root turns with the
+                                            # arm instead of folding (the shoulder pivots just inside the seam)
          "socket_slide_from_deg": 80,
          "forearm_lag_s": 0.07,             # the end of the arm trails the upper arm a little
          "follow_tilt_deg": 6.0,            # the body leans toward the higher arm...
@@ -141,13 +141,21 @@ def socket_turn(u: np.ndarray, sign: int) -> Rot:
 
 
 def socket_rot(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int) -> Rot:
-    """The hidden shoulder bone: slides the seam up the body as the arm rises, and turns with the arm a little,
-    so a big arm turn is not all taken at the arm's root (which would twist it thin)."""
+    """The hidden shoulder bone turns with the arm (a share of its turn), so a big arm turn is not all taken at
+    the arm's root, where it would fold the arm."""
     u_c = keep_clear(_norm(u), sign)
     target = keep_clear(_norm(u_c + _norm(f)), sign)
     rest = _norm(np.array(M[f"{names[-1]}__tail"]) - np.array(M[f"{names[0]}__head"]))
-    share = Rot.from_rotvec(_align(target, rest).as_rotvec() * STYLE["root_share"])
-    return share * socket_turn(u_c, sign)
+    return Rot.from_rotvec(_align(target, rest).as_rotvec() * STYLE["root_share"])
+
+
+def socket_offset(u: np.ndarray, sign: int, height: float) -> np.ndarray:
+    """Where the seam slides as the arm rises (armature axes, metres): up the body side, a little inward as the
+    body narrows, and a little forward so the arm stays in front of the hair."""
+    a = raise_deg(keep_clear(_norm(u), sign))
+    k = float(np.clip((a - STYLE["socket_slide_from_deg"]) / (175 - STYLE["socket_slide_from_deg"]), 0, 1))
+    dz = STYLE["socket_slide"] * height * k * k * (3 - 2 * k)
+    return np.array([-sign * 0.3 * dz, -0.15 * dz, dz])
 
 
 def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int,
@@ -292,6 +300,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         socket = f"arm_{side_name}_0" if f"arm_{side_name}_0" in M else None
         if socket:
             ch[f"{socket}.quat"] = []
+            ch[f"{socket}.loc"] = []
         lag_f = int(round(STYLE["forearm_lag_s"] * fps))
         for i in range(n):
             Ti = T[i]
@@ -301,6 +310,8 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
             c0 = socket_rot(M, [f"arm_{side_name}_{k}" for k in (1, 2, 3)], u, f, sign) if socket else Rot.identity()
             if socket:
                 ch[f"{socket}.quat"].append(_local(M[socket], ident, c0))
+                off = M[socket].T @ socket_offset(u, sign, height)  # armature -> the bone's rest frame
+                ch[f"{socket}.loc"].append([round(float(x), 4) for x in off])
             quats, st = arm_pose(M, names, u, f, sign, parent=c0, scale=float(knob["arms"][i]))
             for nm, q in zip(names, quats):
                 ch[f"{nm}.quat"].append(q)

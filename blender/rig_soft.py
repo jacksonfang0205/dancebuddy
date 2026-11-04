@@ -153,7 +153,9 @@ def main():
         p = co[is_arm & (np.sign(co[:, 0] - cx) == sign)]
         inner = p[np.argsort(sign * (p[:, 0] - cx))[: max(10, len(p) // 12)]]
         root_pt = inner.mean(0)                           # where the arm meets the body
-        pivot = np.array([cx + sign * 0.15 * abs(root_pt[0] - cx), root_pt[1], root_pt[2]])  # inside the body
+        # the shoulder turns around a point just inside the seam, so when it takes part of the arm's turn the
+        # arm's root turns in place (a deep pivot would swing the root around, e.g. back into the hair)
+        pivot = root_pt - np.array([sign * 0.06 * height, 0.0, 0.0])
         arms[side] = {"pivot": pivot, "pts": centre_line(p, root_pt)}
         print(f"arm_{side}: root {np.round(root_pt, 3)}, tip {np.round(arms[side]['pts'][-1], 3)}")
     # ---- armature
@@ -286,7 +288,7 @@ def main():
         # the body band around the seam follows the socket a little
         dist, _ = _T(co[m]).query(co, k=1)
         band = is_body & (dist < 0.05 * height)
-        f = 0.6 * (1 - dist[band] / (0.05 * height))
+        f = 0.3 * (1 - dist[band] / (0.05 * height))
         W[band] *= (1 - f)[:, None]
         W[band, col[f"arm_{side}_0"]] += f
     W /= np.maximum(W.sum(1, keepdims=True), 1e-9)
