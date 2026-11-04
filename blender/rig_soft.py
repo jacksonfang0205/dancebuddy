@@ -293,6 +293,23 @@ def main():
         W[band, col[f"arm_{side}_0"]] += f
     W /= np.maximum(W.sum(1, keepdims=True), 1e-9)
 
+    # which way each hand's flat face points at rest (the thinnest direction of the mitten, across the arm):
+    # when driving, the arm keeps this face toward the camera so it shows its full width
+    faces = {}
+    for side, d in arms.items():
+        m = is_arm & (np.sign(co[:, 0] - cx) == (1 if side == "L" else -1))
+        pts = np.array([list(v) for v in d["pts"]])
+        ax = (pts[-1] - pts[0]) / np.linalg.norm(pts[-1] - pts[0])
+        rel = co[m] - pts[0]
+        s_h = rel @ ax / np.linalg.norm(pts[-1] - pts[0])
+        q = rel[s_h > 0.8]
+        q = q - np.outer(q @ ax, ax)
+        q = q - q.mean(0)
+        _, vec = np.linalg.eigh(np.cov(q.T))
+        n = vec[:, 1] if abs(vec[:, 0] @ ax) > 0.9 else vec[:, 0]  # thinnest, but not the arm axis itself
+        faces[side] = [round(float(x), 4) for x in (n if n[1] < 0 else -n)]  # toward the camera (-Y) at rest
+        print(f"arm_{side} hand face (rest): {faces[side]}")
+
     groups = {n: body.vertex_groups.new(name=n) for n in deform}
     for j, n in enumerate(deform):
         for vi in np.nonzero(W[:, j] > 1e-3)[0]:
@@ -328,6 +345,7 @@ def main():
                    "matrix": [[round(b.matrix_local[i][j], 5) for j in range(3)] for i in range(3)]}
                   for b in arm_data.bones],
         "parts": {"arms": int(is_arm.sum()), "hair": int(is_hair.sum()), "body": int(is_body.sum())},
+        "hand_face": faces,
     }
     with open(os.path.abspath(a.out) + "_rig.json", "w") as f:
         json.dump(info, f, indent=1)

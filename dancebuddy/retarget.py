@@ -158,8 +158,29 @@ def socket_offset(u: np.ndarray, sign: int, height: float) -> np.ndarray:
     return np.array([-sign * 0.3 * dz, -0.15 * dz, dz])
 
 
+def face_camera(cs: list[Rot], rest_dirs: list[np.ndarray], face: np.ndarray) -> list[Rot]:
+    """Turn the arm around its own length so the hand's flat face stays toward the camera (-Y), the way this
+    character shows its arms (a raised arm shows its full width, not its thin edge). Palm or back, whichever is
+    closer; the turn is taken by the forearm and the hand (none at the root, half in the middle, all at the hand),
+    like a forearm twist, so the seam does not fold."""
+    d = _norm(cs[2].apply(rest_dirs[2]))                 # where the hand points now
+    n = cs[2].apply(face)
+    n_p, cam = n - d * (n @ d), np.array([0.0, -1.0, 0.0]) - d * (-d[1])
+    if np.linalg.norm(n_p) < 1e-6 or np.linalg.norm(cam) < 0.2:  # pointing at the camera: nothing to turn
+        return cs
+    n_p, cam = _norm(n_p), _norm(cam)
+    if n_p @ cam < 0:                                  # palm or back toward the camera, whichever is closer
+        cam = -cam
+    phi = np.arctan2(np.cross(n_p, cam) @ d, n_p @ cam)
+    out = []
+    for k, frac in enumerate((0.0, 0.5, 1.0)):  # none at the root (it would fold the seam), most at the hand
+        dk = _norm(cs[k].apply(rest_dirs[k]))
+        out.append(Rot.from_rotvec(dk * phi * frac) * cs[k])
+    return out
+
+
 def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int,
-             parent: Rot | None = None, scale: float = 1.0) -> tuple[list, float]:
+             parent: Rot | None = None, scale: float = 1.0, face: list | None = None) -> tuple[list, float]:
     """Quaternions for a 3-bone soft arm (character rest axes), plus its length factor.
 
     The arm moves as one soft tube: the whole arm (keeping its own rest curve) turns to point from the shoulder
@@ -183,6 +204,8 @@ def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int,
     bend = float(np.arctan2(np.linalg.norm(axis), np.dot(u, f))) * STYLE["bend_share"] * scale
     axis = _norm(axis) if np.linalg.norm(axis) > 1e-6 else np.zeros(3)
     cs = [Rot.from_rotvec(axis * bend * t) * whole for t in (-1 / 3, 0.0, 1 / 3)]  # one even arc
+    if face is not None:
+        cs = face_camera(cs, [M[nm][:, 1] for nm in names], np.asarray(face, float))
     quats = [_local(M[names[0]], parent, cs[0]), _local(M[names[1]], cs[0], cs[1]),
              _local(M[names[2]], cs[1], cs[2])]
     return quats, 1.0  # the arm keeps its length; the `stretch` channel is there for characters that need it
@@ -312,7 +335,8 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
                 ch[f"{socket}.quat"].append(_local(M[socket], ident, c0))
                 off = M[socket].T @ socket_offset(u, sign, height)  # armature -> the bone's rest frame
                 ch[f"{socket}.loc"].append([round(float(x), 4) for x in off])
-            quats, st = arm_pose(M, names, u, f, sign, parent=c0, scale=float(knob["arms"][i]))
+            quats, st = arm_pose(M, names, u, f, sign, parent=c0, scale=float(knob["arms"][i]),
+                                 face=rig.get("hand_face", {}).get(side_name))
             for nm, q in zip(names, quats):
                 ch[f"{nm}.quat"].append(q)
                 ch[f"{nm}.stretch"].append(st)

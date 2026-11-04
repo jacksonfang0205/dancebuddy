@@ -13,7 +13,8 @@
    "shoulder": "a socket on the side of the body. The arm turns in it like a plush toy's sewn-on arm; the body around it does not stretch or follow the arm.",
    "socket_slides": "as an arm rises the socket slides up the side of the body: a hanging arm starts beside the chest, a raised arm starts beside the face. This is what lets raised hands reach above the head.",
    "arm_over_body": "wherever the arm goes it passes in front: in front of the body when it crosses the chest, in front of the hair when it is raised. The joint itself is hidden behind the arm.",
-   "hair_to_head": "the hair stays on the scalp; only its lower part swings"
+   "hair_to_head": "the hair stays on the scalp; only its lower part swings",
+   "arm_faces_front": "the arms are flattened tubes and the mitten hands are flat: whatever the arm does, the hand's flat face (palm or back) stays toward the viewer, so a raised arm shows its full width, never its thin edge; the arm turns in its forearm and hand for this, not at the seam"
   }
  },
  "poses": [
