@@ -134,7 +134,9 @@ translates only the rest:
 uv run python blender/rig_soft.py -- --blend assets/plush.blend --out assets/plush_soft   # once per character
 uv run python -m dancebuddy perceive my_dance.mp4 runs/my
 uv run python -m dancebuddy copy runs/my --char assets/plush_soft
-uv run python -m dancebuddy render runs/my --systems copy --char assets/plush_soft --engine cycles
+uv run python -m dancebuddy render runs/my --systems copy --char assets/plush_soft --preview          # ~1 min look
+uv run python -m dancebuddy compose runs/my --systems copy --preview                                  # side_by_side_preview.mp4
+uv run python -m dancebuddy render runs/my --systems copy --char assets/plush_soft --engine cycles   # final, 30 fps
 uv run python -m dancebuddy compose runs/my --systems copy
 ```
 
@@ -144,6 +146,9 @@ uv run python -m dancebuddy compose runs/my --systems copy
   socket that slides up the body side as the arm rises; arms always pass in front of the body and hair; the body
   outline never changes; arms lead and the body follows; hair trails), plus how human parts translate (no legs:
   kicks tilt the body, bounces lift and squash it). `tools/measure_reference_video.py` measures a reference video.
+- **Rendering speed.** `render` renders at 30 fps by default (a 60 fps clip renders every other frame; `--fps 0`
+  keeps the clip's own rate). `--preview` is a quick untextured look (workbench, half size, ~1 min) into
+  `<system>/preview`; `compose --preview` puts the previews side by side. Cycles on a 4-core CPU takes ~3.5 s a frame.
 - **Rig** (`blender/rig_soft.py`). Designed from the motion spec; the mesh is not edited. Root at the base
   (tilt / turn / lift / squash); a hidden shoulder bone per arm slides the seam up the body side as the arm rises;
   3 B-bones per arm, and the arm bends at its own root like a soft tube (its weight moves from the shoulder to the

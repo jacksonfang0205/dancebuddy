@@ -189,34 +189,56 @@ def cmd_apply(a):
 
 
 def cmd_render(a):
+    """Render systems. Default: 30 fps (a 60 fps clip renders every other frame) with the --engine given.
+    --preview: a quick untextured look (workbench, half size) into <system>/preview, for checking moves."""
     run_dir = Path(a.run)
     for sysname in a.systems:
-        curves = run_dir / sysname / "curves.json"
-        if not curves.exists():
-            print(f"skip {sysname}: no {curves}")
+        curves_path = run_dir / sysname / "curves.json"
+        if not curves_path.exists():
+            print(f"skip {sysname}: no {curves_path}")
             continue
-        frames = run_dir / sysname / "frames"
+        curves = load(curves_path)
+        src_fps = float(curves["fps"])
+        step = max(1, int(round(src_fps / a.fps))) if a.fps else 1
+        frames = run_dir / sysname / ("preview" if a.preview else "frames")
         if frames.exists():
             shutil.rmtree(frames)
-        args = ["--blend", str(a.char) + ".blend", "--curves", str(curves), "--frames", str(frames),
-                "--engine", a.engine, "--width", str(a.width), "--height", str(a.height)]
+        frames.mkdir(parents=True)
+        render_curves = curves_path
+        if step > 1:  # keep every step-th frame, so the motion keeps its timing at the lower frame rate
+            sub = dict(curves, fps=src_fps / step,
+                       channels={k: v[::step] for k, v in curves["channels"].items()})
+            sub["n_frames"] = len(next(iter(sub["channels"].values())))
+            render_curves = frames / "curves_render.json"
+            render_curves.write_text(json.dumps(sub))
+        engine = "workbench" if a.preview else a.engine
+        width, height = (a.width // 2, a.height // 2) if a.preview else (a.width, a.height)
+        (frames / "render_info.json").write_text(json.dumps(
+            {"fps": src_fps / step, "step": step, "engine": engine, "size": [width, height], "preview": a.preview}))
+        args = ["--blend", str(a.char) + ".blend", "--curves", str(render_curves), "--frames", str(frames),
+                "--engine", engine, "--width", str(width), "--height", str(height)]
         if a.max_frames:
             args += ["--max-frames", str(a.max_frames)]
+        print(f"render {sysname}: {engine} {width}x{height} at {src_fps / step:g} fps -> {frames}")
         run(blender_cmd("render_curves.py", args))
 
 
 def cmd_compose(a):
     run_dir = Path(a.run)
     score = load(run_dir / "dance_score.json")
-    fps = score["fps"]
     src = (run_dir / "source.txt").read_text().strip() if (run_dir / "source.txt").exists() else score["source"]
     inputs = ["-i", src]
     labels = ["dancer"]
+    rates = []
     for s in a.systems:
-        fr = run_dir / s / "frames"
+        fr = run_dir / s / ("preview" if a.preview else "frames")
         if fr.exists() and any(fr.glob("frame_*.png")):
-            inputs += ["-framerate", str(fps), "-start_number", "1", "-i", str(fr / "frame_%04d.png")]
+            info = fr / "render_info.json"
+            r = load(info)["fps"] if info.exists() else score["fps"]  # older renders: every source frame
+            inputs += ["-framerate", f"{r:g}", "-start_number", "1", "-i", str(fr / "frame_%04d.png")]
             labels.append(s)
+            rates.append(r)
+    fps = max(rates) if rates else score["fps"]
     if len(labels) == 1:
         sys.exit("nothing rendered yet; run the render command first")
     h = a.height
@@ -231,7 +253,7 @@ def cmd_compose(a):
         parts.append("".join(f"[v{i}]" for i in range(len(labels))) + f"hstack=inputs={len(labels)}:shortest=1[out]")
         return ";".join(parts)
 
-    out = run_dir / "side_by_side.mp4"
+    out = run_dir / ("side_by_side_preview.mp4" if a.preview else "side_by_side.mp4")
     for with_text in (True, False):
         cmd = ["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", graph(with_text), "-map", "[out]", "-map", "0:a?",
                "-c:v", "libx264", "-c:a", "aac", "-shortest", "-pix_fmt", "yuv420p", str(out)]
@@ -338,7 +360,10 @@ def main(argv=None):
     s.add_argument("--attempts", type=int, default=4); s.add_argument("--model")
     s = add("render", cmd_render, "run"); char_opt(s); render_opts(s)
     s.add_argument("--systems", nargs="+", default=["agent", "posecopy"]); s.add_argument("--max-frames", type=int, default=0)
+    s.add_argument("--fps", type=float, default=30, help="render frame rate (0 = the clip's own; default 30)")
+    s.add_argument("--preview", action="store_true", help="quick untextured preview into <system>/preview")
     s = add("compose", cmd_compose, "run"); s.add_argument("--systems", nargs="+", default=["agent", "posecopy"])
+    s.add_argument("--preview", action="store_true", help="put the previews side by side")
     s.add_argument("--height", type=int, default=960)
     s = sub.add_parser("eval"); s.set_defaults(fn=cmd_eval); s.add_argument("runs", nargs="+"); char_opt(s)
     s.add_argument("--out", default=str(ROOT / "results" / "results.json"))
