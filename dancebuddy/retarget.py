@@ -40,7 +40,9 @@ STYLE = {"straight_above_deg": 120,         # raised arms straighten out (refere
          "bend_share": 0.8,                 # how much of the dancer's elbow bend the soft arm takes, as one arc
          # the shoulder is a socket that slides up the side of the body as the arm rises (reference: a raised
          # arm starts beside the face, a hanging arm beside the chest), so raised hands get above the head
-         "socket_slide": 0.12,              # how far the seam slides up the body for a vertical arm (body heights)
+         "socket_slide": 0.22,              # how far the seam slides up the body for a vertical arm (body heights):
+                                            # a raised arm starts beside the face (motion spec)
+         "socket_forward": 0.3,             # ...and forward, per unit up (keeps the arm root in front of the body edge)
          "root_share": 0.5,                 # part of the arm's turn taken at the seam, so the root turns with the
                                             # arm instead of folding (the shoulder pivots just inside the seam)
          "socket_slide_from_deg": 80,
@@ -155,7 +157,7 @@ def socket_offset(u: np.ndarray, sign: int, height: float) -> np.ndarray:
     a = raise_deg(keep_clear(_norm(u), sign))
     k = float(np.clip((a - STYLE["socket_slide_from_deg"]) / (175 - STYLE["socket_slide_from_deg"]), 0, 1))
     dz = STYLE["socket_slide"] * height * k * k * (3 - 2 * k)
-    return np.array([-sign * 0.3 * dz, -0.15 * dz, dz])
+    return np.array([-sign * 0.3 * dz, -STYLE["socket_forward"] * dz, dz])
 
 
 def face_camera(cs: list[Rot], rest_dirs: list[np.ndarray], face: np.ndarray) -> list[Rot]:

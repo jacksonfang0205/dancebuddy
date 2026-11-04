@@ -38,6 +38,8 @@ def parse():
     p.add_argument("--arm-hue", type=float, nargs=2, default=[190, 260], help="hue range (deg) of the arms")
     p.add_argument("--hair-max-value", type=float, default=0.45, help="hair is darker than this (HSV value)")
     p.add_argument("--voxel", type=float, default=0.012, help="voxel size of the weighting copy, x height")
+    p.add_argument("--seam-band", type=float, default=0.10, help="body around an arm seam that follows the shoulder, x height")
+    p.add_argument("--seam-follow", type=float, default=0.6, help="how much that body follows the shoulder (0-1)")
     return p.parse_args(argv)
 
 
@@ -287,8 +289,8 @@ def main():
             W[m, col[f"arm_{side}_{i + 1}"]] = on[m] * Wa[m, i]
         # the body band around the seam follows the socket a little
         dist, _ = _T(co[m]).query(co, k=1)
-        band = is_body & (dist < 0.05 * height)
-        f = 0.3 * (1 - dist[band] / (0.05 * height))
+        band = is_body & (dist < a.seam_band * height)
+        f = a.seam_follow * (1 - dist[band] / (a.seam_band * height))
         W[band] *= (1 - f)[:, None]
         W[band, col[f"arm_{side}_0"]] += f
     W /= np.maximum(W.sum(1, keepdims=True), 1e-9)
