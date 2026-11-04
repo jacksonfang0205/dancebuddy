@@ -144,11 +144,12 @@
    "arms do not move the body",
    "socket slides up as the arm rises",
    "leg translation (jump, kick, step, squat, rise, slide)",
-   "body groove on the beat"
+   "body groove on the beat",
+   "soft body: side tilts are partly a C bend of the body, hip lifts bend it toward the lifted hip, hips swaying under the torso make an S, the bent lower body bulges (wider, shorter, same volume)",
+   "tilting on the base rises like a roly-poly toy, so the bottom never sinks into the floor"
   ],
   "not_yet": [
    "spin: the body turn is limited (about 60 deg)",
-   "soft body bend and bulge (body_soft): the body only tilts rigidly and squashes up-down",
    "soft elbow for big arm bends: big bends are still one even curve",
    "fists: no finger bones yet",
    "hair moves with the head only",

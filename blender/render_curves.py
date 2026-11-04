@@ -88,6 +88,8 @@ def main():
                  pb.bbone_rollin, pb.bbone_rollout) = v
             elif ch == "loc":  # move a bone's head, [x, y, z] in its rest frame (e.g. a shoulder sliding up)
                 pb.location = v
+            elif ch == "scale":  # [x, y, z] in the bone's frame (e.g. a soft body bulging)
+                pb.scale = v
             elif ch == "stretch":  # lengthen a bone along its axis, keeping its volume (soft limbs)
                 st = max(0.3, v)
                 pb.scale = (st ** -0.2, st, st ** -0.2)  # plush arms keep most of their thickness

@@ -24,6 +24,14 @@ from .perception import L_EL, L_HIP, L_SH, L_WR, R_EL, R_HIP, R_SH, R_WR
 
 # the character's range (motion spec "can_do"): the dancer is copied at full size and compressed softly near these
 BODY = {"turn_max": 60.0, "side_max": 25.0, "lean_max": 20.0}
+# the body is a soft bag that keeps its volume (motion spec body_soft): part of every sideways tilt is a bend of the
+# body itself (a C curve from the base), a hip lift bends it toward the lifted hip, hips swaying under a still torso
+# make an S, and the pressed bag bulges: the lower body gets wider and shorter as it bends
+SOFT = {"bend_share": 0.6,          # part of the side tilt shown as a bend (the rest tilts it on its base)
+        "hip_bend": 0.8,            # bend (deg) per deg of the dancer's hip tilt
+        "sway_bend": 25.0,          # S-curve bend (deg) per torso length of the hips' sideways shift
+        "bend_max": 22.0,           # per body bone
+        "bulge_per_deg": 0.005}     # widening of the lower body per deg of bend (height shrinks to keep the volume)
 
 
 def soft_limit(x: np.ndarray, limit: float) -> np.ndarray:
@@ -84,6 +92,14 @@ def limb_dirs(kp: dict, w: np.ndarray, a: int, b: int, aspect: float) -> np.ndar
     d = np.c_[dx, dy, dz]
     d = np.stack([smooth(d[:, k], 1.5) for k in range(3)], -1)
     return _norm(d)
+
+
+def hip_tilt(kp: dict, aspect: float) -> np.ndarray:
+    """(N,) degrees the dancer's pelvis is tilted in the picture, + = her left hip higher (a hip lift)."""
+    im = kp["image"]
+    d = im[:, L_HIP, :2] - im[:, R_HIP, :2]
+    ang = np.degrees(np.arctan2(-d[:, 1], np.abs(d[:, 0]) * aspect + 1e-6))
+    return smooth(ang - np.median(ang), 2.0)
 
 
 def torso_frames(w: np.ndarray) -> np.ndarray:
@@ -300,24 +316,42 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
     gv = {k: v * knob["groove"] for k, v in gv.items()}
     side = side + gv["tilt"]
     turn = turn + gv["twist"]
+    # ---- soft body: split the side tilt into a tilt on the base and a bend of the body (C), add the hip lift and the
+    # hips' sway (S), and let the bent lower body bulge
+    bend_c = side * SOFT["bend_share"]
+    side = side - bend_c                                       # the rigid part, on the base
+    hip_t = hip_tilt(kp, aspect)                               # + = the dancer's left hip higher
+    sway = smooth(np.asarray(signals.get("hip_sway", np.zeros(n)), float), 1.5)
+    lower_bend = soft_limit(0.5 * bend_c - SOFT["hip_bend"] * hip_t + SOFT["sway_bend"] * sway, SOFT["bend_max"])
+    upper_bend_deg = soft_limit(0.5 * bend_c + 1.5 * SOFT["hip_bend"] * hip_t - SOFT["sway_bend"] * sway,
+                                SOFT["bend_max"])
+    bulge = 1.0 + SOFT["bulge_per_deg"] * (np.abs(lower_bend) + 0.5 * np.abs(upper_bend_deg))
     body = [Rot.from_euler("z", turn[i], degrees=True) * Rot.from_euler("y", side[i], degrees=True)
             * Rot.from_euler("x", lean[i], degrees=True) for i in range(n)]
     # upper body: S-shaped wiggle, plus the dancer's head nods and tilts when the plan asks for them
     nod = soft_limit(smooth(np.asarray(signals.get("head_nod", np.zeros(n)), float), 1.0) * knob["head"] + emph["nod"], 20.0)
     htilt = soft_limit(smooth(np.asarray(signals.get("head_tilt", np.zeros(n)), float), 1.0) * knob["head"], 20.0)
-    upper_bend = [Rot.from_euler("y", gv["bend"][i] + htilt[i], degrees=True) * Rot.from_euler("x", nod[i], degrees=True)
-                  for i in range(n)]
+    upper_bend = [Rot.from_euler("y", gv["bend"][i] + htilt[i] + upper_bend_deg[i], degrees=True)
+                  * Rot.from_euler("x", nod[i], degrees=True) for i in range(n)]
 
     ch: dict[str, list] = {k: [] for k in ["root.quat", "root.loc", "root.squash"]}
     ident = Rot.identity()
     for i in range(n):
         ch["root.quat"].append(_local(M["root"], ident, body[i]))
         # root rest frame: x = across (character's left), y = up
+        # tilting on the base would push one side of the bottom into the floor: rise like a roly-poly toy
+        tilt_up = body[i].apply([0.0, 0.0, 1.0])
+        roll = float(rig.get("base_radius_m", 0.0)) * np.sqrt(max(0.0, 1 - tilt_up[2] ** 2))
         ch["root.loc"].append([round(float(legs["shift"][i] * knob["travel"][i] * height), 4),
-                               round(float((legs["lift"][i] + emph["lift"][i]) * height), 4), 0.0])
+                               round(float((legs["lift"][i] + emph["lift"][i]) * height + roll), 4), 0.0])
     ch["root.squash"] = [round(float(x), 4) for x in np.clip(legs["squash"] + gv["pulse"] + emph["squash"], -0.1, 0.25)]
     if "body_upper" in M:
         ch["body_upper.quat"] = [_local(M["body_upper"], ident, upper_bend[i]) for i in range(n)]
+    if "body_lower" in M:
+        ch["body_lower.quat"] = [_local(M["body_lower"], ident, Rot.from_euler("y", lower_bend[i], degrees=True))
+                                 for i in range(n)]
+        # bone axes: y = up, x = across: wider and as much shorter, so the bag keeps its volume
+        ch["body_lower.scale"] = [[round(float(b), 4), round(float(1 / b), 4), 1.0] for b in bulge]
 
     # ---- arms: copied in the torso frame (the body bones already carry the body rotation)
     for side_name, sign, (sh, el, wr) in (("L", 1, (L_SH, L_EL, L_WR)), ("R", -1, (R_SH, R_EL, R_WR))):
@@ -346,6 +380,6 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
             ch[f"{name}.bbone"].append(curve)
 
     return {"fps": fps, "n_frames": n, "character": rig.get("name", "character"), "channels": ch,
-            "retarget": {"body": BODY, "style": STYLE, "groove": GROOVE},
+            "retarget": {"body": BODY, "soft": SOFT, "style": STYLE, "groove": GROOVE},
             "leg_events": [{k: (int(v) if isinstance(v, (int, np.integer)) else v) for k, v in ev.items()}
                            for ev in legs["events"]]}

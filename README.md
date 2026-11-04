@@ -163,6 +163,10 @@ uv run python -m dancebuddy compose runs/my --systems copy
   smoothly near the character's limits (never cut flat). Hair trails the body.
 - **Groove** (`retarget.py`). On top of the copied motion the soft body grooves on the beat: side sway, a twist a
   quarter beat later, an upper-body counter-bend and a small squash pulse, toned down during the dancer's big moves.
+- **Soft body** (`retarget.py`, SOFT). The body is a soft bag that keeps its volume: part of every sideways tilt is a
+  bend of the body itself (a C curve from the base), the dancer's hip lift bends it toward the lifted hip, hips
+  swaying under a still torso make an S, and the bent lower body bulges (wider and as much shorter). Tilting on the
+  base rises like a roly-poly toy, so the bottom stays on the floor.
 - **Leg translation** (`dancebuddy/legs.py`). The character has no legs, so every leg movement is turned into a
   visible movement of the body before any renderer or video model sees the motion: jumps (wind-up squash, stretch,
   hop, landing squash), kicks (lean away from the leg), steps (bob, lean onto the step), squats, rising on the

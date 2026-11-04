@@ -169,6 +169,7 @@ def main():
         b.align_roll(FORWARD)
         b.bbone_segments = 16
         b.parent, b.use_connect = sh, False  # not connected: the curve's start follows the arm, not the shoulder
+    eb["body_upper"].inherit_scale = "NONE"  # the lower body bulges when it bends; the head end keeps its size
     bpy.ops.object.mode_set(mode="OBJECT")
 
     # ---- weights
@@ -330,6 +331,9 @@ def main():
                   for b in arm_data.bones],
         "parts": {"arms": int(is_arm.sum()), "hair": int(is_hair.sum()), "body": int(is_body.sum())},
         "hand_face": faces,
+        # half-width of the bottom of the body: tilting on the base lifts it by about this x sin(tilt)
+        "base_radius_m": round(float(np.percentile(np.abs(co[is_body & (co[:, 2] < 0.08 * height)][:, :2]
+                                                          - np.array([cx, cy])), 95)), 3),
     }
     with open(os.path.abspath(a.out) + "_rig.json", "w") as f:
         json.dump(info, f, indent=1)
