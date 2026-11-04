@@ -7,6 +7,7 @@ Channel -> pose bone mapping (bones point up, so bone-local Y is the bone axis):
   lean  -> rotation X      twist -> rotation Y      sway -> rotation Z
   root.lift -> location Y (along the root bone = world up)
   root.squash -> scale (Y shrinks, X/Z grow to keep volume)
+  <bone>.bbone -> B-bone curve [curve in x, in z, out x, out z, roll in, roll out] (a soft limb bending)
   <bone>.loc -> head offset [x, y, z] in the bone's rest frame
   <bone>.stretch -> length factor along the bone (thickness mostly kept)
   <bone>.quat -> rotation quaternion [w, x, y, z] in the bone's rest frame (overrides the Euler channels)
@@ -24,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scene_utils import setup_render  # noqa: E402
 
 AXIS = {"lean": 0, "twist": 1, "sway": 2}
+BBONE_PROPS = ("bbone_curveinx", "bbone_curveinz", "bbone_curveoutx", "bbone_curveoutz", "bbone_rollin", "bbone_rollout")
 
 
 def parse():
@@ -63,6 +65,8 @@ def main():
             pb.rotation_euler = (0, 0, 0)
             pb.rotation_quaternion = (1, 0, 0, 0)
             pb.location = (0, 0, 0)
+            for prop in BBONE_PROPS:
+                setattr(pb, prop, 0.0)
             pb.scale = (1, 1, 1)
         for name, vals in curves["channels"].items():
             bone, ch = name.split(".", 1)
@@ -79,6 +83,9 @@ def main():
                 pb.rotation_euler = r
             elif ch == "lift":
                 pb.location = (0, v, 0)
+            elif ch == "bbone":  # B-bone curve: [curve in x, in z, out x, out z, roll in, roll out]
+                (pb.bbone_curveinx, pb.bbone_curveinz, pb.bbone_curveoutx, pb.bbone_curveoutz,
+                 pb.bbone_rollin, pb.bbone_rollout) = v
             elif ch == "loc":  # move a bone's head, [x, y, z] in its rest frame (e.g. a shoulder sliding up)
                 pb.location = v
             elif ch == "stretch":  # lengthen a bone along its axis, keeping its volume (soft limbs)
@@ -92,6 +99,9 @@ def main():
                                frame=f + 1)
             pb.keyframe_insert("location", frame=f + 1)
             pb.keyframe_insert("scale", frame=f + 1)
+            if pb.bone.bbone_segments > 1:
+                for prop in BBONE_PROPS:
+                    pb.keyframe_insert(prop, frame=f + 1)
 
     if a.save_blend:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(a.save_blend))

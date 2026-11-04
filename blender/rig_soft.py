@@ -4,7 +4,8 @@ The rig follows the character's motion spec (assets/<name>_motion_spec.json), wh
   * body      : root at the base (tilt, turn, hop, squash) -> body_lower -> body_upper (barely bends)
   * shoulders : arm_X_0, hidden in the body and not deforming; turning it slides the arm's root up the body side
                 (a raised arm starts beside the face)
-  * arms      : arm_X_1..3, B-bones, so each arm bends as one smooth curve (no elbow)
+  * arms      : arm_X_1, one bendable bone (16-segment B-bone) per arm: it bends as one smooth curve and keeps its
+                width and length (no elbow, no blending between bones along the arm)
   * hair      : no bones of its own; it moves with the head (not animated separately)
 
 The mesh is never edited. Parts are found from the base-colour texture (arms = blue, hair = dark brown). Weights
@@ -100,21 +101,6 @@ def centre_line(p, start, n_pts=4):
     return pts
 
 
-def chain_weights(s, joints, blend=0.12):
-    """Weights for a bone chain from a parameter s along it. joints = [s0, s1, ..., sK] (bone k spans s_k..s_k+1)."""
-    k = len(joints) - 1
-    W = np.zeros((len(s), k))
-    for i in range(k):
-        lo, hi = joints[i], joints[i + 1]
-        w = np.ones(len(s))
-        if i > 0:
-            w *= np.clip((s - (lo - blend / 2)) / blend, 0, 1)
-        if i < k - 1:
-            w *= np.clip(((hi + blend / 2) - s) / blend, 0, 1)
-        W[:, i] = w
-    return W / np.maximum(W.sum(1, keepdims=True), 1e-9)
-
-
 # ------------------------------------------------------------------ build
 
 def main():
@@ -175,14 +161,14 @@ def main():
         sh.head, sh.tail = Vector(d["pivot"]), Vector(d["pts"][0])
         sh.align_roll(FORWARD)
         sh.parent = eb["body_lower"]
-        prev = sh
-        for i in range(3):
-            b = eb.new(f"arm_{side}_{i + 1}")
-            b.head, b.tail = Vector(d["pts"][i]), Vector(d["pts"][i + 1])
-            b.align_roll(FORWARD)
-            b.bbone_segments = 6
-            b.parent, b.use_connect = prev, True
-            prev = b
+        sh.inherit_scale = "NONE"  # the body may squash; the arms keep their width (motion spec)
+        # the whole arm is ONE bendable bone (B-bone, 16 segments): every arm point belongs to it alone, so the
+        # arm bends as one smooth curve and keeps its width and length (no blending between bones along it)
+        b = eb.new(f"arm_{side}_1")
+        b.head, b.tail = Vector(d["pts"][0]), Vector(d["pts"][-1])
+        b.align_roll(FORWARD)
+        b.bbone_segments = 16
+        b.parent, b.use_connect = sh, False  # not connected: the curve's start follows the arm, not the shoulder
     bpy.ops.object.mode_set(mode="OBJECT")
 
     # ---- weights
@@ -278,13 +264,11 @@ def main():
         # distance from the seam, measured along the arm: 0 at the arm's innermost points
         s0 = np.percentile(s_par[m], 3)
         s_rel = np.clip((s_par - s0) / (1 - s0 + 1e-9), 0, 1)
-        on = np.clip(s_rel / 0.35, 0, 1)
+        on = np.clip(s_rel / 0.15, 0, 1)  # only the seam itself blends with the shoulder
         on = on * on * (3 - 2 * on)
-        Wa = chain_weights(s_rel, list((seg / seg[-1])), blend=0.4)  # wide: the arm bends as one curve
         W[m] = 0
         W[m, col[f"arm_{side}_0"]] = 1 - on[m]
-        for i in range(3):
-            W[m, col[f"arm_{side}_{i + 1}"]] = on[m] * Wa[m, i]
+        W[m, col[f"arm_{side}_1"]] = on[m]
         # the body band around the seam follows the socket a little
         dist, _ = _T(co[m]).query(co, k=1)
         band = is_body & (dist < 0.05 * height)
@@ -335,7 +319,7 @@ def main():
     info = {
         "name": os.path.basename(a.out),
         "kind": "3D model rigged from its motion spec (rig_soft.py): base-pivot body, sliding shoulder sockets, "
-                "3-bone B-bone arms; hair moves with the head; mesh unchanged, heat weights",
+                "one-curve B-bone arms that keep their width; hair moves with the head; mesh unchanged, heat weights",
         "height_m": round(height, 3),
         "root_bone": "root",
         "bones": [{"name": b.name, "parent": b.parent.name if b.parent else None, "deform": b.use_deform,

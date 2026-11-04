@@ -1,8 +1,8 @@
 """Copy a dancer onto a character, following the character's motion spec.
 
 What the body can do is copied frame by frame; what it cannot is translated (assets/<name>_motion_spec.json):
-  * arms   : the dancer's upper-arm direction drives the first arm bone, the forearm direction bends the soft arm
-             (bones 2 and 3); arms are kept in front of the hair and the body
+  * arms   : one bendable bone per arm: it points from the shoulder toward the hand and curves from the dancer's
+             upper-arm direction to her forearm direction, keeping its width; kept in front of the hair and body
   * body   : the dancer's torso turn / side tilt / forward lean drive the whole body around its base, at full size
              and smoothly compressed near the character's limits (never cut flat, so peaks keep their timing)
   * legs   : no legs -> every jump, kick, step, squat and move across is translated (legs.py) into hops,
@@ -158,34 +158,27 @@ def socket_offset(u: np.ndarray, sign: int, height: float) -> np.ndarray:
     return np.array([-sign * 0.3 * dz, -0.15 * dz, dz])
 
 
-def face_camera(cs: list[Rot], rest_dirs: list[np.ndarray], face: np.ndarray) -> list[Rot]:
-    """Turn the arm around its own length so the hand's flat face stays toward the camera (-Y), the way this
-    character shows its arms (a raised arm shows its full width, not its thin edge). Palm or back, whichever is
-    closer; the turn is taken by the forearm and the hand (none at the root, half in the middle, all at the hand),
-    like a forearm twist, so the seam does not fold."""
-    d = _norm(cs[2].apply(rest_dirs[2]))                 # where the hand points now
-    n = cs[2].apply(face)
+def _hand_roll(n: np.ndarray, d: np.ndarray) -> float:
+    """Turn (radians, around the hand's direction d) that brings the hand's flat face n toward the camera (-Y):
+    palm or back, whichever is closer. 0 when the hand points at the camera."""
     n_p, cam = n - d * (n @ d), np.array([0.0, -1.0, 0.0]) - d * (-d[1])
-    if np.linalg.norm(n_p) < 1e-6 or np.linalg.norm(cam) < 0.2:  # pointing at the camera: nothing to turn
-        return cs
+    if np.linalg.norm(n_p) < 1e-6 or np.linalg.norm(cam) < 0.2:
+        return 0.0
     n_p, cam = _norm(n_p), _norm(cam)
-    if n_p @ cam < 0:                                  # palm or back toward the camera, whichever is closer
+    if n_p @ cam < 0:
         cam = -cam
-    phi = np.arctan2(np.cross(n_p, cam) @ d, n_p @ cam)
-    out = []
-    for k, frac in enumerate((0.0, 0.5, 1.0)):  # none at the root (it would fold the seam), most at the hand
-        dk = _norm(cs[k].apply(rest_dirs[k]))
-        out.append(Rot.from_rotvec(dk * phi * frac) * cs[k])
-    return out
+    return float(np.arctan2(np.cross(n_p, cam) @ d, n_p @ cam))
 
 
-def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int,
-             parent: Rot | None = None, scale: float = 1.0, face: list | None = None) -> tuple[list, float]:
-    """Quaternions for a 3-bone soft arm (character rest axes), plus its length factor.
+def arm_pose(M: dict, name: str, u: np.ndarray, f: np.ndarray, sign: int,
+             parent: Rot | None = None, scale: float = 1.0, face: list | None = None) -> tuple[list, list]:
+    """Pose of a one-bone soft arm (a B-bone): its rotation [w, x, y, z] and its curve [curve in x, in z,
+    out x, out z, roll in, roll out].
 
-    The arm moves as one soft tube: the whole arm (keeping its own rest curve) turns to point from the shoulder
-    toward the hand (upper arm + forearm), and the dancer's elbow bend is spread evenly along the arm as one arc,
-    so no bone joint ever shows as a corner."""
+    The arm is one bendable tube that keeps its width and length: the bone points from the shoulder toward the
+    hand, the curve leans its start toward the dancer's upper arm and its end toward the forearm (the elbow
+    bend as one even arc), and the hand's flat face turns toward the camera through a twist that grows along the
+    arm (none at the seam)."""
     parent = parent if parent is not None else Rot.identity()
     u = keep_clear(_norm(u), sign)
     f = _norm(f)
@@ -194,21 +187,35 @@ def arm_pose(M: dict, names: list[str], u: np.ndarray, f: np.ndarray, sign: int,
     k = float(np.clip((raise_deg(u) - STYLE["straight_above_deg"]) / 40.0, 0, 1))
     f = _norm((1 - k) * f + k * u)                   # raised arms are straight
     target = keep_clear(_norm(u + f), sign)          # shoulder -> hand
-    heads = [np.array(M[f"{n}__head"]) for n in names]
-    tip = np.array(M[f"{names[-1]}__tail"])
-    rest_dir = _norm(tip - heads[0])
-    whole = _align(target, rest_dir)                 # the arm with its rest curve, turned as a whole
+    head, tail = np.array(M[f"{name}__head"], float), np.array(M[f"{name}__tail"], float)
+    length = float(np.linalg.norm(tail - head))
+    c = _align(target, M[name][:, 1])                # the arm with its rest shape, turned as a whole
     if scale != 1.0:                                 # the agent's choice: exaggerate or soften the arm move
-        whole = Rot.from_rotvec(whole.as_rotvec() * scale)
-    axis = np.cross(u, f)
-    bend = float(np.arctan2(np.linalg.norm(axis), np.dot(u, f))) * STYLE["bend_share"] * scale
-    axis = _norm(axis) if np.linalg.norm(axis) > 1e-6 else np.zeros(3)
-    cs = [Rot.from_rotvec(axis * bend * t) * whole for t in (-1 / 3, 0.0, 1 / 3)]  # one even arc
-    if face is not None:
-        cs = face_camera(cs, [M[nm][:, 1] for nm in names], np.asarray(face, float))
-    quats = [_local(M[names[0]], parent, cs[0]), _local(M[names[1]], cs[0], cs[1]),
-             _local(M[names[2]], cs[1], cs[2])]
-    return quats, 1.0  # the arm keeps its length; the `stretch` channel is there for characters that need it
+        c = Rot.from_rotvec(c.as_rotvec() * scale)
+    frame = c * Rot.from_matrix(M[name])             # bone axes -> armature
+    chord = frame.apply([0.0, 1.0, 0.0])
+    share = STYLE["bend_share"] * scale
+
+    def lean(vec: np.ndarray) -> tuple[np.ndarray, float]:
+        """Handle offset (bone x, z) that tilts the curve's tangent toward vec, and that tilt (radians)."""
+        loc = frame.inv().apply(vec)
+        perp = np.array([loc[0], loc[2]])
+        ang = min(float(np.arctan2(np.linalg.norm(perp), loc[1])) * share, np.radians(60))
+        if np.linalg.norm(perp) < 1e-6:
+            return np.zeros(2), 0.0
+        return np.tan(ang) * length / 3 * perp / np.linalg.norm(perp), ang   # B-bone handle = length / 3
+
+    cin, _ = lean(u)
+    out_off, a_out = lean(f)
+    cout = -out_off                                   # an end handle offset tilts the end tangent the other way
+    roll = 0.0
+    if face is not None:                              # the hand's direction and face at the end of the curve
+        ax = np.cross(chord, f)
+        bend_end = Rot.from_rotvec(_norm(ax) * a_out) if np.linalg.norm(ax) > 1e-6 else Rot.identity()
+        roll = _hand_roll(bend_end.apply(c.apply(np.asarray(face, float))), bend_end.apply(chord))
+    q = _local(M[name], parent, c)
+    curve = [round(float(x), 5) for x in (cin[0], cin[1], cout[0], cout[1], 0.0, roll)]
+    return q, curve
 
 
 def beat_phase(n: int, beats: list[int]) -> np.ndarray:
@@ -314,12 +321,10 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
 
     # ---- arms: copied in the torso frame (the body bones already carry the body rotation)
     for side_name, sign, (sh, el, wr) in (("L", 1, (L_SH, L_EL, L_WR)), ("R", -1, (R_SH, R_EL, R_WR))):
-        names = [f"arm_{side_name}_{k}" for k in (1, 2, 3)]
-        if not all(nm in M for nm in names):
+        name = f"arm_{side_name}_1"
+        if name not in M:
             continue
-        for nm in names:
-            ch[f"{nm}.quat"] = []
-            ch[f"{nm}.stretch"] = []
+        ch[f"{name}.quat"], ch[f"{name}.bbone"] = [], []
         socket = f"arm_{side_name}_0" if f"arm_{side_name}_0" in M else None
         if socket:
             ch[f"{socket}.quat"] = []
@@ -330,16 +335,15 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
             j = max(0, i - lag_f)
             u = Ti.T @ upper[side_name][i]
             f = Ti.T @ fore[side_name][j]  # forearm from a moment ago: the soft end trails
-            c0 = socket_rot(M, [f"arm_{side_name}_{k}" for k in (1, 2, 3)], u, f, sign) if socket else Rot.identity()
+            c0 = socket_rot(M, [name], u, f, sign) if socket else Rot.identity()
             if socket:
                 ch[f"{socket}.quat"].append(_local(M[socket], ident, c0))
                 off = M[socket].T @ socket_offset(u, sign, height)  # armature -> the bone's rest frame
                 ch[f"{socket}.loc"].append([round(float(x), 4) for x in off])
-            quats, st = arm_pose(M, names, u, f, sign, parent=c0, scale=float(knob["arms"][i]),
-                                 face=rig.get("hand_face", {}).get(side_name))
-            for nm, q in zip(names, quats):
-                ch[f"{nm}.quat"].append(q)
-                ch[f"{nm}.stretch"].append(st)
+            q, curve = arm_pose(M, name, u, f, sign, parent=c0, scale=float(knob["arms"][i]),
+                                face=rig.get("hand_face", {}).get(side_name))
+            ch[f"{name}.quat"].append(q)
+            ch[f"{name}.bbone"].append(curve)
 
     return {"fps": fps, "n_frames": n, "character": rig.get("name", "character"), "channels": ch,
             "retarget": {"body": BODY, "style": STYLE, "groove": GROOVE},

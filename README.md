@@ -150,11 +150,13 @@ uv run python -m dancebuddy compose runs/my --systems copy
   keeps the clip's own rate). `--preview` is a quick untextured look (workbench, half size, ~1 min) into
   `<system>/preview`; `compose --preview` puts the previews side by side. Cycles on a 4-core CPU takes ~3.5 s a frame.
 - **Rig** (`blender/rig_soft.py`). Designed from the motion spec; the mesh is not edited. Root at the base
-  (tilt / turn / lift / squash); a hidden shoulder bone per arm slides the seam up the body side as the arm rises;
-  3 B-bones per arm, and the arm bends at its own root like a soft tube (its weight moves from the shoulder to the
-  arm over the first quarter of the arm). The hair has no bones of its own and moves with the head. Body and hair weights are
-  heat-diffusion weights computed on a closed voxel copy (generated meshes are open and in pieces) and copied back
-  by position; parts are found from the base-colour texture (blue = arms, dark brown = hair).
+  (tilt / turn / lift / squash); a hidden shoulder bone per arm, pivoting just inside the seam, slides the seam up
+  the body as the arm rises and takes half of the arm's turn; each arm is ONE bendable bone (16-segment B-bone) that
+  every arm point belongs to alone, so the arm bends as one curve and keeps its width and length (only the seam
+  blends with the shoulder; the arms do not squash with the body). `blender/check_arm_width.py` measures the arm's
+  width along its length in sampled frames of a run. The hair has no bones of its own and moves with the head.
+  Body weights are heat-diffusion weights computed on a closed voxel copy (generated meshes are open and in pieces)
+  and copied back by position; parts are found from the base-colour texture (blue = arms, dark brown = hair).
 - **Retarget** (`dancebuddy/retarget.py`). Arm directions come from the picture (monocular depth is unreliable, so
   the 3D depth is damped), kept in front of the hair and the body; the shoulder socket slides up as the arm rises;
   each arm bends as one even arc. The body takes the dancer's turn, side tilt and lean at full size, compressed

@@ -14,7 +14,8 @@
    "socket_slides": "as an arm rises the socket slides up the side of the body: a hanging arm starts beside the chest, a raised arm starts beside the face. This is what lets raised hands reach above the head.",
    "arm_over_body": "wherever the arm goes it passes in front: in front of the body when it crosses the chest, in front of the hair when it is raised. The joint itself is hidden behind the arm.",
    "hair_to_head": "the hair stays on the scalp; only its lower part swings",
-   "arm_faces_front": "the arms are flattened tubes and the mitten hands are flat: whatever the arm does, the hand's flat face (palm or back) stays toward the viewer, so a raised arm shows its full width, never its thin edge; the arm turns in its forearm and hand for this, not at the seam"
+   "arm_faces_front": "the arms are flattened tubes and the mitten hands are flat: whatever the arm does, the hand's flat face (palm or back) stays toward the viewer, so a raised arm shows its full width, never its thin edge; the arm turns in its forearm and hand for this, not at the seam",
+   "arm_shape": "an arm keeps its width and its length in every pose; it only bends, as one smooth curve (no elbow); when the body squashes, the arms do not"
   }
  },
  "poses": [
@@ -85,7 +86,7 @@
  },
  "rig": {
   "file": "plush_soft.blend, made by blender/rig_soft.py from plush.blend (the mesh is not edited)",
-  "how": "designed from the connections above: root at the base of the body; a hidden shoulder bone per arm whose turn slides the seam up the body side; 3 B-bones per arm, with the weight moving from the shoulder to the arm over the first quarter of the arm so the arm bends at its own root like a soft tube; a narrow band of body around the seam follows the shoulder; the hair has no bones of its own and moves with the head. Body and hair weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
+  "how": "designed from the connections above; the mesh is not edited. Root at the base of the body; a hidden shoulder bone per arm (pivot just inside the seam) slides the seam up the body as the arm rises and takes half of the arm's turn; each arm is ONE 16-segment bendable bone (B-bone) with every arm point on it alone, so it bends as a curve and keeps its width (blender/check_arm_width.py checks this); only the seam blends with the shoulder; hair has no bones and moves with the head. Body weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
   "driven_by": "dancebuddy/retarget.py"
  },
  "known_gaps": [
