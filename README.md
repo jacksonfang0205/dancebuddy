@@ -149,10 +149,7 @@ uv run python -m dancebuddy compose runs/my --systems copy
 - **Rendering speed.** `render` renders at 30 fps by default (a 60 fps clip renders every other frame; `--fps 0`
   keeps the clip's own rate). `--preview` is a quick untextured look (workbench, half size, ~1 min) into
   `<system>/preview`; `compose --preview` puts the previews side by side. Cycles on a 4-core CPU takes ~3.5 s a frame.
-- **Rig** (`blender/rig_soft.py`). Designed from the motion spec; the rest shape is not changed. The generated
-  model fuses each arm to the body along its inner side, so a raised arm dragged a sheet of skin up with it;
-  the rig cuts the arm loose along that line and lays a hidden skin patch under each arm (`blender/unstitch.py`,
-  `--keep-stitched` to skip), so the arm only touches the body. Root at the base
+- **Rig** (`blender/rig_soft.py`). Designed from the motion spec; the mesh is not edited. Root at the base
   (tilt / turn / lift / squash); a hidden shoulder bone per arm, pivoting just inside the seam, slides the seam up
   the body as the arm rises and takes half of the arm's turn; each arm is ONE bendable bone (16-segment B-bone) that
   every arm point belongs to alone, so the arm bends as one curve and keeps its width and length (only the seam
