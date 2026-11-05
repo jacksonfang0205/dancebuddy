@@ -140,6 +140,52 @@ def straighten(im: np.ndarray, arm: np.ndarray, body_centre: np.ndarray, pointin
     return out, {"root": root, "tip": tip, "root_in_picture": line[4].tolist()}
 
 
+def fill_from_render(rgb: np.ndarray, al: np.ndarray, rest: np.ndarray, m: dict):
+    """Remove the arms from a render and fill what they covered. The render of the character without its arms
+    shows what is behind them, except where the model has holes (where the arms were sewn on, it is open: the
+    dark inside shows); those points become skin or hair, whichever is nearer among the points that show."""
+    rest_alpha = rest[:, :, 3]
+    any_arm = np.zeros(al.shape, bool)
+    for x in m["arms"].values():
+        any_arm |= x
+    cover = cv2.dilate(any_arm.astype(np.uint8), np.ones((13, 13), np.uint8)) > 0
+    sil = ((rest_alpha > 128) | ((al > 128) & ~cover)).astype(np.uint8)
+    sil = cv2.morphologyEx(sil, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (41, 41)))
+    ff = sil.copy()
+    cv2.floodFill(ff, np.zeros((sil.shape[0] + 2, sil.shape[1] + 2), np.uint8), (0, 0), 2)
+    sil = ff != 2
+    region = cover & sil
+    # behind the arms, as rendered without them (not where the model is open and its dark inside shows)
+    seen = region & (rest_alpha > 200) & (rest[:, :, :3].max(-1) > 60)
+    seen = cv2.erode(seen.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    rgb = rgb.copy()
+    rgb[seen] = rest[:, :, :3][seen]
+    keep = ((al > 128) & ~cover) | seen
+    region = region & ~seen
+    skin_src, hair_src = m["skin"] & keep, m["hair"] & keep
+    d_skin = cv2.distanceTransform((~skin_src).astype(np.uint8), cv2.DIST_L2, 5)
+    d_hair = cv2.distanceTransform((~hair_src).astype(np.uint8), cv2.DIST_L2, 5)
+    out = rgb.copy()
+    if region.any():
+        # work in a box around what the arms covered (inpainting the whole picture is slow)
+        ys, xs = np.nonzero(region)
+        y0, y1 = max(0, ys.min() - 80), min(rgb.shape[0], ys.max() + 81)
+        x0, x1 = max(0, xs.min() - 80), min(rgb.shape[1], xs.max() + 81)
+        box = (slice(y0, y1), slice(x0, x1))
+        sub, k_, cov_ = rgb[box], keep[box], cover[box]
+        for part, src in ((region & (d_skin <= d_hair), skin_src), (region & (d_hair < d_skin), hair_src)):
+            part, src_b = part[box], src[box]
+            if part.any() and src_b.any():
+                # colour only from this kind of surface: everything else is hidden from the inpainting
+                unknown = (cov_ | ~src_b).astype(np.uint8) * 255
+                low = cv2.GaussianBlur(cv2.inpaint(sub, unknown, 9, cv2.INPAINT_TELEA).astype(np.float32), (0, 0), 5)
+                det = _detail(rgb, src, rgb.shape)[box]
+                o = out[box]
+                o[part] = np.clip(low[part] + det[part], 0, 255).astype(np.uint8)
+    a8 = np.where(cover, (region | seen).astype(np.uint8) * 255, al).astype(np.uint8)
+    return out, a8
+
+
 def _resize(img: np.ndarray, f: float) -> np.ndarray:
     return cv2.resize(img, None, fx=f, fy=f, interpolation=cv2.INTER_AREA if f < 1 else cv2.INTER_CUBIC)
 
@@ -159,12 +205,8 @@ def side_views(views_dir: Path, out: Path, meta: dict, pic_height_px: float) -> 
                  for s in "LR"}
         rgb, al = full[:, :, :3], full[:, :, 3]
         m = masks(rgb, alpha=al, arm_masks=arm_m)
-        fig, filled = fill_behind_arms(rgb, m)
-        any_arm = np.zeros(al.shape, bool)
-        for x in m["arms"].values():
-            any_arm |= x
-        cover = cv2.dilate(any_arm.astype(np.uint8), np.ones((13, 13), np.uint8)) > 0
-        a8 = np.where(cover, filled.astype(np.uint8) * 255, al).astype(np.uint8)
+        rest = cv2.imread(str(views_dir / f"rest_{yaw}.png"), cv2.IMREAD_UNCHANGED)
+        fig, a8 = fill_from_render(rgb, al, rest, m)
         figure = _resize(np.dstack([fig, a8]), f)
         cv2.imwrite(str(out / f"figure_{yaw}.png"), figure)
         if int(yaw) >= 135:  # back turned: the hair is drawn over the arms
@@ -188,6 +230,10 @@ def fist_sprites(out: Path, meta: dict, fist_dir: Path) -> None:
         big = np.zeros((open_.shape[0] + 2 * pad, open_.shape[1], 4), np.uint8)
         big[pad:pad + open_.shape[0]] = open_
         A[1, 2] += pad
+        dark = fz[:, :, :3].max(-1) < 90  # bits of the model's dark inside and shadowed flaps at the cut end
+        fz[dark, 3] = 0
+        solid = cv2.morphologyEx((fz[:, :, 3] > 100).astype(np.uint8), cv2.MORPH_OPEN, np.ones((15, 15), np.uint8))
+        fz[:, :, 3] = np.minimum(fz[:, :, 3], cv2.dilate(solid, np.ones((3, 3), np.uint8)) * 255)  # no thin flaps
         warped = cv2.warpAffine(fz, A, (big.shape[1], big.shape[0]), flags=cv2.INTER_AREA,
                                 borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
         cv2.imwrite(str(out / f"arm_{s}.png"), big)

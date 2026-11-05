@@ -109,6 +109,7 @@ def main():
             o.matrix_world = turn
         bpy.context.view_layer.update()
         shoot(f"{out}/full_{yaw}.png", [body])
+        shoot(f"{out}/rest_{yaw}.png", [rest])  # the character without its arms: what they cover
         for s in "LR":  # where this arm shows: the rest of the character hides what it covers
             shoot(f"{out}/armvis_{s}_{yaw}.png", [arms[s]], holdout=[rest, arms["R" if s == "L" else "L"]], samples=8)
         v = {}
