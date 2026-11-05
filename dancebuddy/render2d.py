@@ -24,7 +24,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
 VIEWS = (0, 45, 90, 135, 180)
-STYLE = {"canvas": (540, 960), "body_height": 0.46, "base_y": 0.80, "horizon": 0.60,
+STYLE = {"canvas": (540, 960), "supersample": 2, "body_height": 0.46, "base_y": 0.80, "horizon": 0.60,
          "wall": (196, 196, 200), "floor": (236, 236, 238), "arm_shadow": 0.30, "floor_shadow": 0.28,
          "bend_split": 0.55}
 
@@ -77,20 +77,26 @@ class Parts:
         folder = Path(folder)
         self.meta = json.loads((folder / "parts.json").read_text())
         self.m_per_px = float(self.meta["metres_per_px"])
-        self.fig, self.hair, self.off = {}, {}, {}
-        for y in VIEWS:
-            f = _fill_black(_fill_holes(cv2.imread(str(folder / f"figure_{y}.png"), cv2.IMREAD_UNCHANGED)))
-            self.fig[y] = f
-            h = cv2.imread(str(folder / f"hair_vis_{y}.png"), cv2.IMREAD_UNCHANGED)
-            body = cv2.imread(str(folder / f"body_{y}.png"), cv2.IMREAD_UNCHANGED)
-            near = cv2.dilate((body[:, :, 3] > 128).astype(np.uint8), np.ones((15, 15), np.uint8))
-            h[:, :, 3] = h[:, :, 3] * near  # only the hair lying over the body
-            self.hair[y] = h
+        self.from_render = "source" not in self.meta  # parts rendered from the 3D model (not cut from a picture)
+        self.views = sorted(int(v) for v in self.meta["views"])
+        self.fig, self.hair = {}, {}
+        for y in self.views:
+            f = cv2.imread(str(folder / f"figure_{y}.png"), cv2.IMREAD_UNCHANGED)
+            self.fig[y] = _fill_black(_fill_holes(f)) if self.from_render else f
+            hp, bp = folder / f"hair_vis_{y}.png", folder / f"body_{y}.png"
+            if hp.exists() and bp.exists():
+                h = cv2.imread(str(hp), cv2.IMREAD_UNCHANGED)
+                body = cv2.imread(str(bp), cv2.IMREAD_UNCHANGED)
+                near = cv2.dilate((body[:, :, 3] > 128).astype(np.uint8), np.ones((15, 15), np.uint8))
+                h[:, :, 3] = h[:, :, 3] * near  # only the hair lying over the body
+                self.hair[y] = h
         self.arm = {}
         for s in "LR":
             root, tip = (np.array(self.meta["arms"][s][k], float) for k in ("root", "tip"))
-            o = _fill_black(cv2.imread(str(folder / f"arm_{s}.png"), cv2.IMREAD_UNCHANGED))
-            fz = _fill_black(cv2.imread(str(folder / f"arm_{s}_fist.png"), cv2.IMREAD_UNCHANGED))
+            o = cv2.imread(str(folder / f"arm_{s}.png"), cv2.IMREAD_UNCHANGED)
+            fz = cv2.imread(str(folder / f"arm_{s}_fist.png"), cv2.IMREAD_UNCHANGED)
+            if self.from_render:
+                o, fz = _fill_black(o), _fill_black(fz)
             # the arm comes out of the body: its cut end at the seam fades in over the first part of its length
             yy, xx = np.mgrid[0:o.shape[0], 0:o.shape[1]]
             along = ((xx - root[0]) * (tip - root)[0] + (yy - root[1]) * (tip - root)[1]) / np.sum((tip - root) ** 2)
@@ -123,7 +129,7 @@ def _forward(p: np.ndarray, st: dict) -> np.ndarray:
     """Figure point (px, base origin, y up) -> deformed point (same frame, before placing on the canvas)."""
     x, y = p[..., 0], p[..., 1]
     sy = 1.0 - st["squash"]
-    sx = 1.0 / np.sqrt(sy)
+    sx = 1.0 / np.sqrt(sy) * st.get("turn_squeeze", 1.0)
     low = np.clip(1 - y / (st["H"] * 0.6), 0, 1)
     x1 = x * sx * (1 + (st["bulge"] - 1) * low)
     y1 = y * sy
@@ -152,7 +158,7 @@ def _over(dst: np.ndarray, src: np.ndarray) -> None:
 
 def _warp_figure(img: np.ndarray, anchor_base: np.ndarray, mirror: bool, st: dict, place) -> np.ndarray:
     """Canvas-sized RGBA of a figure-like sprite (same frame as the figure) under the body deformation."""
-    W, Hc = STYLE["canvas"]
+    W, Hc = place["size"]
     gx, gy = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(Hc, dtype=np.float32))
     q = np.stack([(gx - place["x"]) / place["k"], (place["y"] - gy) / place["k"]], -1)
     p = _inverse(q, st)
@@ -163,11 +169,11 @@ def _warp_figure(img: np.ndarray, anchor_base: np.ndarray, mirror: bool, st: dic
 
 
 def _arm_layer(spr: dict, fist: float, root_c: np.ndarray, dir_c: np.ndarray, theta: float, length_c: float,
-               k: float) -> np.ndarray:
+               k: float, size: tuple = (960, 540)) -> np.ndarray:
     """Canvas RGBA of an arm sprite laid along a circular arc: from root_c (canvas px), starting along the unit
     direction dir_c turned back by theta/2 (so the chord runs along dir_c), bending by theta (rad, + = toward
     the left normal), with arc length length_c (canvas px)."""
-    W, Hc = STYLE["canvas"]
+    Hc, W = size
     img = spr["fist"] if fist > 0.5 else spr["open"]  # a hand balls up at once, like a drawn hand
     root_s, tip_s = spr["root"], spr["tip"]
     L_s = float(np.linalg.norm(tip_s - root_s))
@@ -213,7 +219,9 @@ def render(motion: dict, parts: Parts, out_dir: str | Path, step: int = 1) -> in
     """Render every step-th frame of a motion (retarget.py) into out_dir/frame_0001.png ..."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    W, Hc = STYLE["canvas"]
+    ss = STYLE["supersample"]
+    W0, H0 = STYLE["canvas"]
+    W, Hc = W0 * ss, H0 * ss
     m_px = parts.m_per_px
     v0 = parts.meta["views"]["0"]
     H_fig = v0["base"][1] - v0["top"][1]                       # body height in sprite px
@@ -226,26 +234,29 @@ def render(motion: dict, parts: Parts, out_dir: str | Path, step: int = 1) -> in
     for idx, i in enumerate(frames):
         turn = float(motion["turn"][i])
         t_wrapped = (turn + 180) % 360 - 180
-        yaw = min(VIEWS, key=lambda v: abs(v - abs(t_wrapped)))
-        mirror = t_wrapped < 0
+        yaw = min(parts.views, key=lambda v: abs(v - abs(t_wrapped)))
+        mirror = t_wrapped < 0 and yaw != 0
+        # with fewer views than the turn needs, the figure narrows a little as it turns away
+        squeeze = float(max(0.82, np.cos(np.radians(abs(t_wrapped) - yaw)) ** 0.5))
         view = parts.meta["views"][str(yaw)]
         base_s = np.array(view["base"], float)
         st = {"H": H_fig, "squash": float(motion["squash"][i]), "bulge": float(motion["bulge"][i]),
+              "turn_squeeze": squeeze,
               "tilt": float(motion["tilt"][i]),
               "bend": _bend_tables(H_fig, float(motion["lower_bend"][i]), float(motion["upper_bend"][i]),
                                    STYLE["bend_split"])}
-        place = {"k": k, "x": W / 2 + float(motion["shift_m"][i]) / m_px * k,
+        place = {"size": (W, Hc), "k": k, "x": W / 2 + float(motion["shift_m"][i]) / m_px * k,
                  "y": STYLE["base_y"] * Hc - float(motion["lift_m"][i]) / m_px * k}
         canvas = bg.copy()
         # floor shadow
         sh = np.zeros((Hc, W), np.float32)
         lift = float(motion["lift_m"][i]) / m_px * k
-        cv2.ellipse(sh, (int(place["x"]), int(STYLE["base_y"] * Hc)), (int(0.32 * H_fig * k / (1 + lift / 80)),
+        cv2.ellipse(sh, (int(place["x"]), int(STYLE["base_y"] * Hc)), (int(0.32 * H_fig * k / (1 + lift / (80 * ss))),
                     int(0.05 * H_fig * k)), 0, 0, 360, 1.0, -1)
-        sh = cv2.GaussianBlur(sh, (0, 0), 9) * STYLE["floor_shadow"] / (1 + lift / 60)
+        sh = cv2.GaussianBlur(sh, (0, 0), 9 * ss) * STYLE["floor_shadow"] / (1 + lift / (60 * ss))
         canvas *= (1 - sh[..., None])
         fig = _warp_figure(parts.fig[yaw], base_s, mirror, st, place)
-        hair = _warp_figure(parts.hair[yaw], base_s, mirror, st, place) if yaw >= 135 else None
+        hair = _warp_figure(parts.hair[yaw], base_s, mirror, st, place) if yaw >= 135 and yaw in parts.hair else None
 
         def to_canvas(p_fig_up: np.ndarray) -> np.ndarray:
             q = _forward(p_fig_up[None], st)[0]
@@ -279,9 +290,11 @@ def render(motion: dict, parts: Parts, out_dir: str | Path, step: int = 1) -> in
             ang = np.radians(st["tilt"]) + float(np.interp(sp_up[1] * (1 - st["squash"]), ys, a))
             c2 = _rot2(c2, ang)
             th3 = max(float(arc["theta"]), 1e-6)
-            chord_len = arc["length"] * np.sin(th3 / 2) / (th3 / 2) * fore / m_px * k
+            spr = parts.arm[s]
+            L_px = float(np.linalg.norm(spr["tip"] - spr["root"]))  # the arm as drawn, at the figure's scale
+            chord_len = L_px * np.sin(th3 / 2) / (th3 / 2) * fore * k
             arc_len = chord_len * ((abs(theta) / 2) / np.sin(abs(theta) / 2) if abs(theta) > 1e-3 else 1.0)
-            layer = _arm_layer(parts.arm[s], float(motion[f"fist_{s}"][i]), root_c, c2, theta, arc_len, k)
+            layer = _arm_layer(spr, float(motion[f"fist_{s}"][i]), root_c, c2, theta, arc_len, k, (Hc, W))
             depth = float(view[f"shoulder_{src}_depth"])
             (back if depth > 0.08 else front).append(layer)
         for layer in back:
@@ -289,7 +302,7 @@ def render(motion: dict, parts: Parts, out_dir: str | Path, step: int = 1) -> in
         # the arms' soft shadow on the body
         if front:
             am = np.maximum.reduce([layer[:, :, 3] for layer in front]) / 255.0
-            shd = cv2.GaussianBlur(np.roll(np.roll(am, 6, 0), 4, 1), (0, 0), 7) * STYLE["arm_shadow"]
+            shd = cv2.GaussianBlur(np.roll(np.roll(am, 6 * ss, 0), 4 * ss, 1), (0, 0), 7 * ss) * STYLE["arm_shadow"]
             fig[:, :, :3] *= (1 - shd[..., None])
         _over(canvas, fig)
         if hair is not None:  # back turned: the arms go under the hair
@@ -299,5 +312,6 @@ def render(motion: dict, parts: Parts, out_dir: str | Path, step: int = 1) -> in
         else:
             for layer in front:
                 _over(canvas, layer)
-        cv2.imwrite(str(out_dir / f"frame_{idx + 1:04d}.png"), np.clip(canvas, 0, 255).astype(np.uint8))
+        canvas = cv2.resize(np.clip(canvas, 0, 255), (W0, H0), interpolation=cv2.INTER_AREA)
+        cv2.imwrite(str(out_dir / f"frame_{idx + 1:04d}.png"), canvas.astype(np.uint8))
     return len(frames)
