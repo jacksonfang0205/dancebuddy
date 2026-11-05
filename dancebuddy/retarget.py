@@ -48,9 +48,13 @@ GROOVE = {"tilt_deg": 5.0, "twist_deg": 7.0, "bend_deg": 5.0, "bend_delay_s": 0.
 # style from the spec's "tends_to": arms lead and the body follows, soft arms, squash low / stretch high
 STYLE = {"straight_above_deg": 120,         # raised arms straighten out (reference: arms up are straight)
          "bend_share": 0.8,                 # how much of the dancer's elbow bend the soft arm takes, as one arc
-         "elbow_from_deg": 40.0,            # bends bigger than this start to gather in the middle (soft elbow)
-         "elbow_full_deg": 90.0,            # ...and are a full soft elbow from here on
-         "elbow_ease": 1.2,                 # how much (extra B-bone ease) for a full soft elbow
+         "bend_max_deg": 160.0,             # the most the arm curls (as one round arc)
+         "clear_from": 0.12,                # the arm from here to the hand stays out of the body...
+         "clear_step_deg": 12.0,            # ...turned away from it at most this much at a time...
+         "clear_steps": 12,                 # ...at most this many times...
+         "clear_tolerance": 0.005,          # ...until it sinks in less than this (body heights): plush gives
+         "elbow_from_deg": 40.0,            # a bend this big counts as bent (for the fists)...
+         "elbow_full_deg": 90.0,            # ...fully from here
          # the shoulder is a socket that slides up the side of the body as the arm rises (reference: a raised
          # arm starts beside the face, a hanging arm beside the chest), so raised hands get above the head
          "socket_slide": 0.12,              # how far the seam slides up the body for a vertical arm (body heights)
@@ -231,15 +235,19 @@ def _hand_roll(n: np.ndarray, d: np.ndarray) -> float:
     return float(np.arctan2(np.cross(n_p, cam) @ d, n_p @ cam))
 
 
+BBONE_HANDLE = 0.390464  # Blender: a B-bone handle reaches this x the bone length x its ease (rest ease 1)
+
+
 def arm_pose(M: dict, name: str, u: np.ndarray, f: np.ndarray, sign: int,
-             parent: Rot | None = None, scale: float = 1.0, face: list | None = None) -> tuple[list, list]:
-    """Pose of a one-bone soft arm (a B-bone): its rotation [w, x, y, z] and its curve [curve in x, in z,
-    out x, out z, roll in, roll out, ease in, ease out].
+             parent: Rot | None = None, scale: float = 1.0, face: list | None = None,
+             info: dict | None = None) -> tuple[list, list, float]:
+    """Pose of a one-bone soft arm (a B-bone): its rotation [w, x, y, z], its curve [curve in x, in z, out x,
+    out z, roll in, roll out, ease in, ease out] and how much its chord shortens (bone y-scale).
 
     The arm is one bendable tube that keeps its width and length: the bone points from the shoulder toward the
-    hand, the curve leans its start toward the dancer's upper arm and its end toward the forearm (the elbow
-    bend as one even arc), and the hand's flat face turns toward the camera through a twist that grows along the
-    arm (none at the seam)."""
+    hand, the curve is a circular arc whose start leans toward the dancer's upper arm and whose end comes from
+    the forearm's direction (the elbow bend spread evenly along the arm, so it stays round), and the hand's flat
+    face turns toward the camera through a twist that grows along the arm (none at the seam)."""
     parent = parent if parent is not None else Rot.identity()
     u = keep_clear(_norm(u), sign)
     f = _norm(f)
@@ -255,26 +263,33 @@ def arm_pose(M: dict, name: str, u: np.ndarray, f: np.ndarray, sign: int,
         c = Rot.from_rotvec(c.as_rotvec() * scale)
     frame = c * Rot.from_matrix(M[name])             # bone axes -> armature
     chord = frame.apply([0.0, 1.0, 0.0])
-    # a big bend gathers in the middle like a soft elbow (motion spec): it takes the whole bend (a rounded L),
-    # and longer curve handles keep both ends straighter, so the turn happens in the middle; a small bend stays
-    # one gentle curve that takes only part of the dancer's bend
-    g = elbow_amount(u, f)
-    share = (STYLE["bend_share"] + (1 - STYLE["bend_share"]) * g) * scale
-    ease = g * STYLE["elbow_ease"]
-    handle = length / 3 * (1 + ease)                  # B-bone handle length = length / 3 x ease
-
-    def lean(vec: np.ndarray) -> tuple[np.ndarray, float]:
-        """Handle offset (bone x, z) that tilts the curve's tangent toward vec, and that tilt (radians)."""
-        loc = frame.inv().apply(vec)
-        perp = np.array([loc[0], loc[2]])
-        ang = min(float(np.arctan2(np.linalg.norm(perp), loc[1])) * share, np.radians(60))
-        if np.linalg.norm(perp) < 1e-6:
-            return np.zeros(2), 0.0
-        return np.tan(ang) * handle * perp / np.linalg.norm(perp), ang
-
-    cin, _ = lean(u)
-    out_off, a_out = lean(f)
-    cout = -out_off                                   # an end handle offset tilts the end tangent the other way
+    # the arm is a thick plush tube: it bends as one round arc (the same curvature all along, so the inside of
+    # the bend never folds or creases), and keeps its length: the straight distance from shoulder to hand
+    # shortens as the arc closes (bone y-scale), the arc itself stays as long as the arm
+    lu, lf = frame.inv().apply(u), frame.inv().apply(f)
+    a_in = float(np.arctan2(np.hypot(lu[0], lu[2]), lu[1]))
+    a_out = float(np.arctan2(np.hypot(lf[0], lf[2]), lf[1]))
+    theta = min((a_in + a_out) * STYLE["bend_share"] * scale, np.radians(STYLE["bend_max_deg"]))
+    a_out = theta / 2
+    chord_scale, cin, cout, ease = 1.0, np.zeros(2), np.zeros(2), 0.0
+    if theta > 1e-3:
+        chord_scale = float(np.sin(theta / 2) / (theta / 2))
+        radius = length / (2 * np.sin(theta / 2))                     # of the arc over the rest-length chord
+        handle = 4 / 3 * np.tan(theta / 4) * radius                   # Bezier handles of a circular arc
+        ease = float(handle * np.cos(theta / 2) / (BBONE_HANDLE * length) - 1)
+        off = handle * np.sin(theta / 2)
+        # the arc bulges away from the shoulder->hand line on the side opposite the elbow's inside: its start
+        # leans toward the upper arm, its end comes in from the forearm's side
+        side = np.array([lu[0] - lf[0], lu[2] - lf[2]])
+        if np.linalg.norm(side) < 1e-6:
+            side = np.array([lu[0], lu[2]])
+        if np.linalg.norm(side) > 1e-6:
+            d = side / np.linalg.norm(side)
+            cin, cout = off * d, off * d
+    if info is not None:                              # the arc in armature space, for keeping it out of the body
+        bulge = frame.apply([cin[0], 0.0, cin[1]]) if theta > 1e-3 else np.zeros(3)
+        info.update(chord=chord, length=length, theta=theta,
+                    bulge=_norm(bulge) if np.linalg.norm(bulge) > 1e-9 else np.zeros(3))
     roll = 0.0
     if face is not None:                              # the hand's direction and face at the end of the curve
         ax = np.cross(chord, f)
@@ -282,11 +297,44 @@ def arm_pose(M: dict, name: str, u: np.ndarray, f: np.ndarray, sign: int,
         roll = _hand_roll(bend_end.apply(c.apply(np.asarray(face, float))), bend_end.apply(chord))
     q = _local(M[name], parent, c)
     curve = [round(float(x), 5) for x in (cin[0], cin[1], cout[0], cout[1], 0.0, roll, ease, ease)]
-    return q, curve
+    return q, curve, round(chord_scale, 5)
+
+
+def arm_centre_line(head: np.ndarray, info: dict, ts: np.ndarray) -> np.ndarray:
+    """Points along a posed arm (armature space) at fractions ts of its length: a circular arc of the arm's
+    length from its head, bulging toward info['bulge']."""
+    L, th, ch, b = info["length"], info["theta"], info["chord"], info["bulge"]
+    if th < 1e-3:
+        return head + np.outer(ts * L, ch)
+    R = L / th
+    phi = (ts - 0.5) * th
+    half_chord = R * np.sin(th / 2)
+    return head + np.outer(half_chord + R * np.sin(phi), ch) + np.outer(R * (np.cos(phi) - np.cos(th / 2)), b)
+
+
+def body_depth(pts: np.ndarray, shape: dict, margin: float) -> tuple[np.ndarray, np.ndarray]:
+    """How deep (m, + = inside) points sink into the body (its rest shape, rig.json body_shape), with a margin
+    (the arm's thickness), and the outward direction at each point."""
+    rad = np.asarray(shape["radius"], float)
+    nz, na = rad.shape
+    cx, cy = shape["centre"]
+    dx, dy = pts[:, 0] - cx, pts[:, 1] - cy
+    r = np.hypot(dx, dy)
+    ang = np.arctan2(dy, dx)
+    zf = np.clip(pts[:, 2] / shape["top"] * nz - 0.5, 0, nz - 1)
+    af = ((ang + np.pi) / (2 * np.pi) * na - 0.5) % na
+    z0, a0 = np.floor(zf).astype(int), np.floor(af).astype(int)
+    z1, a1 = np.minimum(z0 + 1, nz - 1), (a0 + 1) % na
+    wz, wa = zf - z0, af - a0
+    body = ((1 - wz) * ((1 - wa) * rad[z0, a0] + wa * rad[z0, a1]) + wz * ((1 - wa) * rad[z1, a0] + wa * rad[z1, a1]))
+    above = (pts[:, 2] > shape["top"]) | (pts[:, 2] < 0)
+    depth = np.where(above, -1.0, body + margin - r)
+    out = np.stack([dx, dy, np.zeros_like(dx)], -1) / np.maximum(r, 1e-6)[:, None]
+    return depth, out
 
 
 def elbow_amount(u: np.ndarray, f: np.ndarray) -> float:
-    """0 for a small bend (one gentle curve) .. 1 for a big bend (a full soft elbow)."""
+    """0 for a small bend .. 1 for a big bend of the dancer's elbow."""
     bend = float(np.degrees(np.arccos(np.clip(_norm(u) @ _norm(f), -1, 1))))
     return float(np.clip((bend - STYLE["elbow_from_deg"]) / (STYLE["elbow_full_deg"] - STYLE["elbow_from_deg"]), 0, 1))
 
@@ -423,27 +471,71 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         name = f"arm_{side_name}_1"
         if name not in M:
             continue
-        ch[f"{name}.quat"], ch[f"{name}.bbone"] = [], []
+        ch[f"{name}.quat"], ch[f"{name}.bbone"], ch[f"{name}.scale"] = [], [], []
         fist = np.zeros(n)
         socket = f"arm_{side_name}_0" if f"arm_{side_name}_0" in M else None
         if socket:
             ch[f"{socket}.quat"] = []
             ch[f"{socket}.loc"] = []
         lag_f = int(round(STYLE["forearm_lag_s"] * fps))
+        shape, radius = rig.get("body_shape"), float(rig.get("arm_radius", {}).get(side_name, 0.1))
+        ts = np.linspace(STYLE["clear_from"], 1.0, 16)
+        # near the seam the arm is sewn onto the body: only its centre must stay out there, the full thickness
+        # from a third of the way out
+        margin = radius * np.clip((ts - STYLE["clear_from"]) / (0.35 - STYLE["clear_from"]), 0, 1)
+        if shape is not None:  # the model's own pose is how close its arm sits to the body: that is not sinking in
+            rest_dir = _norm(np.asarray(M[f"{name}__tail"], float) - np.asarray(M[f"{name}__head"], float))
+            info0 = {}
+            arm_pose(M, name, rest_dir, rest_dir, sign, info=info0)
+            d0, _ = body_depth(arm_centre_line(np.asarray(M[f"{name}__head"], float), info0, ts), shape, margin)
+            margin = margin - np.maximum(d0, 0.0)
+
+        def place_arm(u, f, scale, name=name, socket=socket, sign=sign, shape=shape, margin=margin, ts=ts):
+            """Pose the arm; if any part of it sinks into the body, turn it (upper arm and forearm together,
+            around the shoulder) a little at a time away from the body until it is clear (motion spec: arms pass
+            in front of the body; a hand on the chest lies on it)."""
+            for _ in range(STYLE["clear_steps"] + 1):
+                c0 = socket_rot(M, [name], u, f, sign) if socket else Rot.identity()
+                off = socket_offset(u, sign, height) if socket else np.zeros(3)
+                info = {}
+                q, curve, chord = arm_pose(M, name, u, f, sign, parent=c0, scale=scale,
+                                           face=rig.get("hand_face", {}).get(side_name), info=info)
+                if shape is None:
+                    break
+                p0 = np.asarray(M[f"{socket}__head"], float) if socket else np.zeros(3)
+                head = p0 + off + c0.apply(np.asarray(M[f"{name}__head"], float) - p0)
+                pts = arm_centre_line(head, info, ts)
+                depth, out = body_depth(pts, shape, margin)
+                k = int(np.argmax(depth))
+                if depth[k] <= STYLE["clear_tolerance"] * height:
+                    break
+                # straight out of the body: against the gradient of the depth (the surface normal)
+                e = 0.01
+                grad = np.array([(body_depth(pts[k:k + 1] + e * ax_, shape, margin[k:k + 1])[0][0] - depth[k]) / e
+                                 for ax_ in np.eye(3)])
+                axis = np.cross(pts[k] - head, -grad if np.linalg.norm(grad) > 1e-6 else out[k])
+
+                if np.linalg.norm(axis) < 1e-9:
+                    break
+                # about as far as it takes to lift that point out (depth / lever arm), a step at a time
+                step = np.clip(depth[k] / max(np.linalg.norm(pts[k] - head), 1e-3) * 1.2,
+                               np.radians(1.0), np.radians(STYLE["clear_step_deg"]))
+                turn = Rot.from_rotvec(_norm(axis) * step)
+                u, f = turn.apply(u), turn.apply(f)
+            return c0, off, q, curve, chord
+
         for i in range(n):
             Ti = T[i]
             j = max(0, i - lag_f)
             u = Ti.T @ upper[side_name][i]
             f = Ti.T @ fore[side_name][j]  # forearm from a moment ago: the soft end trails
-            c0 = socket_rot(M, [name], u, f, sign) if socket else Rot.identity()
+            c0, off, q, curve, chord = place_arm(u, f, float(knob["arms"][i]))
             if socket:
                 ch[f"{socket}.quat"].append(_local(M[socket], ident, c0))
-                off = M[socket].T @ socket_offset(u, sign, height)  # armature -> the bone's rest frame
-                ch[f"{socket}.loc"].append([round(float(x), 4) for x in off])
-            q, curve = arm_pose(M, name, u, f, sign, parent=c0, scale=float(knob["arms"][i]),
-                                face=rig.get("hand_face", {}).get(side_name))
+                ch[f"{socket}.loc"].append([round(float(x), 4) for x in M[socket].T @ off])  # -> bone rest frame
             ch[f"{name}.quat"].append(q)
             ch[f"{name}.bbone"].append(curve)
+            ch[f"{name}.scale"].append([1.0, chord, 1.0])
             fist[i] = fist_amount(u, f)
         if f"fist_{side_name}" in rig.get("shape_keys", {}):
             ch[f"{name}.fist"] = [round(float(x), 3) for x in np.clip(smooth(fist, 0.05 * fps), 0, 1)]

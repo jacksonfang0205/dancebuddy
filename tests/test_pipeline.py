@@ -196,7 +196,8 @@ def test_copy_raises_the_arm_the_dancer_raises(synth):
         sh = Rot.identity(len(q))
     direction = (sh * mat["arm_L_1"] * rot).apply([0, 1, 0])  # bone axis in armature space
     down, up = direction[half // 2], direction[half + half // 2]
-    assert down[2] < -0.8 and up[2] > 0.5  # hanging vs raised
+    # hanging (along the side of the egg, as in the model: straight down would go through its belly) vs raised
+    assert down[2] < -0.65 and up[2] > 0.5
     assert up[1] < 0  # raised arm stays in front of the hair
 
 
@@ -275,3 +276,22 @@ def test_hands_ball_up_for_raised_bent_arms():
     assert fist_amount(out, across) == 0.0             # across the chest
     assert 0.4 < fist_amount(up, up) < 0.8             # straight up: partly closed
     assert elbow_amount(out, (0.95, 0, 0.3)) == 0.0    # a small bend stays one curve
+
+
+def test_soft_arm_is_a_round_arc_that_keeps_its_length():
+    """An arm bends as one circular arc (no crease) and its arc keeps the arm's length."""
+    import numpy as np
+    from scipy.spatial.transform import Rotation as Rot
+    from dancebuddy.retarget import arm_centre_line, arm_pose
+    M = {"arm_L_1": np.eye(3), "arm_L_1__head": [0.0, 0.0, 0.0], "arm_L_1__tail": [0.0, 0.5, 0.0]}
+    info = {}
+    q, curve, chord = arm_pose(M, "arm_L_1", np.array([1.0, 0, 0]), np.array([0, 0, 1.0]), 1, info=info)
+    assert info["theta"] > 1.0 and 0.6 < chord < 1.0
+    pts = arm_centre_line(np.zeros(3), info, np.linspace(0, 1, 200))
+    assert abs(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum() - 0.5) < 0.005
+    seg = np.diff(pts, axis=0)
+    turn = np.degrees(np.arccos(np.clip((seg[1:] * seg[:-1]).sum(1) / np.linalg.norm(seg[1:], axis=1)
+                                        / np.linalg.norm(seg[:-1], axis=1), -1, 1)))
+    assert turn.max() - turn.min() < 0.2          # the same curvature all along
+    assert abs(np.linalg.norm(pts[-1]) - 0.5 * chord) < 1e-3
+    assert Rot.from_quat(np.r_[q[1:], q[:1]]).magnitude() > 0.1

@@ -320,6 +320,37 @@ def main():
         key.value = 0.0  # open hands at rest
         print(f"fist_{side}: {int(moving.sum())} points roll up")
 
+    # the body's outer shape (radius around its centre line by height and direction), so the copy can keep the
+    # arms outside it (motion spec: arms pass in front of the body), and each arm's thickness
+    nz, na = 32, 48
+    bz = np.clip((co[:, 2] / body_top * nz).astype(int), 0, nz - 1)
+    ang = np.arctan2(co[:, 1] - cy, co[:, 0] - cx)
+    ba = ((ang + np.pi) / (2 * np.pi) * na).astype(int) % na
+    rad = np.hypot(co[:, 0] - cx, co[:, 1] - cy)
+    shape = np.zeros((nz, na))
+    from scipy.spatial import cKDTree as _K
+    near_arm = _K(co[is_arm]).query(co, k=1)[0] < 0.04 * height  # stray arm-coloured points are not body
+    cell = bz * na + ba
+    for c_ in np.unique(cell[is_body & ~near_arm]):
+        r_ = rad[is_body & ~near_arm & (cell == c_)]
+        shape[c_ // na, c_ % na] = np.percentile(r_, 95) if len(r_) >= 5 else r_.max()
+    for i in range(nz):  # fill directions with no points from their neighbours
+        row = shape[i]
+        if (row > 0).any():
+            ok = np.nonzero(row > 0)[0]
+            shape[i] = np.interp(np.arange(na), ok, row[ok], period=na)
+    shape = np.maximum(shape, (np.roll(shape, 1, 1) + np.roll(shape, -1, 1)) / 2)  # never smaller than its sides
+    arm_radius = {}
+    for side, d in arms.items():
+        m = is_arm & (np.sign(co[:, 0] - cx) == (1 if side == "L" else -1))
+        pts = np.array([list(v) for v in d["pts"]])
+        ax = (pts[-1] - pts[0]) / np.linalg.norm(pts[-1] - pts[0])
+        rel = co[m] - pts[0]
+        sv = rel @ ax / np.linalg.norm(pts[-1] - pts[0])
+        q = rel[(sv > 0.2) & (sv < 0.7)]
+        q = q - np.outer(q @ ax, ax)
+        arm_radius[side] = round(float(np.percentile(np.linalg.norm(q - q.mean(0), axis=1), 75)), 3)
+
     groups = {n: body.vertex_groups.new(name=n) for n in deform}
     for j, n in enumerate(deform):
         for vi in np.nonzero(W[:, j] > 1e-3)[0]:
@@ -356,6 +387,11 @@ def main():
                   for b in arm_data.bones],
         "parts": {"arms": int(is_arm.sum()), "hair": int(is_hair.sum()), "body": int(is_body.sum())},
         "hand_face": faces,
+        "body_shape": {"centre": [round(cx, 4), round(cy, 4)], "top": round(body_top, 4),
+                       "radius": [[round(float(x), 4) for x in row] for row in shape],
+                       "note": "outer radius of the body (no arms, no hair) by height bin (rows, base to top) and "
+                               "direction bin (columns, atan2(y, x) from -pi), at rest"},
+        "arm_radius": arm_radius,
         "shape_keys": {"fist_L": "left hand balled up (0 open .. 1 fist)", "fist_R": "right hand balled up"},
         # half-width of the bottom of the body: tilting on the base lifts it by about this x sin(tilt)
         "base_radius_m": round(float(np.percentile(np.abs(co[is_body & (co[:, 2] < 0.08 * height)][:, :2]

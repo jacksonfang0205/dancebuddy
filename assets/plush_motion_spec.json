@@ -16,7 +16,7 @@
    "arm_over_body": "wherever the arm goes it passes in front: in front of the body when it crosses the chest, in front of the hair when it is raised. The joint itself is hidden behind the arm.",
    "hair_to_head": "the hair stays on the scalp; only its lower part swings",
    "arm_faces_front": "the arms are flattened tubes and the mitten hands are flat: whatever the arm does, the hand's flat face (palm or back) stays toward the viewer, so a raised arm shows its full width, never its thin edge; the arm turns in its forearm and hand for this, not at the seam",
-   "arm_shape": "an arm keeps its width and its length in every pose; it only bends. A small bend is a gentle curve along the whole arm; a big bend gathers in the middle like a soft elbow (a rounded L: upper part out to the side, forearm up), still round. When the body squashes, the arms do not",
+   "arm_shape": "an arm keeps its width and its length in every pose; it only bends. It is a thick soft tube, so every bend is one round curve spread along the arm (the same curvature all along), even a big one: never a crease or a fold. When the body squashes, the arms do not",
    "arms_do_not_move_the_body": "an arm moving, however far, never pulls or widens the body: the body's outline stays as it is",
    "body_soft": "the body itself is soft and keeps its volume: when the body moves (a lean, a hip lift, a kick, a step, a landing) it bends into a smooth C or S curve; the inside of the bend is pressed together and bulges out a little, the outside stretches and straightens; the base stays on the floor except in a jump; the face and the heart ride on the surface",
    "back_is_hair": "seen from behind the character is almost all hair; the arms show a little at the sides"
@@ -60,7 +60,7 @@
   },
   {
    "pose": "bent arm, elbow out",
-   "arms": "the tube bends in its middle, the 'elbow' points out, hand comes back toward the body",
+   "arms": "the tube curls round, the outside of the curve points out, hand comes back toward the body",
    "body": "follows the arm's direction"
   },
   {
@@ -81,7 +81,7 @@
   },
   {
    "pose": "both arms bent up (hands up, elbows out)",
-   "arms": "each arm goes out to the side and bends up in the middle like a soft elbow; hands beside or above the head, often fists",
+   "arms": "each arm goes out to the side and curls up in one round curve; hands beside or above the head, often fists",
    "body": "upright, a little bounce"
   },
   {
@@ -148,8 +148,8 @@
    "soft body: side tilts are partly a C bend of the body, hip lifts bend it toward the lifted hip, hips swaying under the torso make an S, the bent lower body bulges (wider, shorter, same volume)",
    "tilting on the base rises like a roly-poly toy, so the bottom never sinks into the floor",
    "spin: the body turns all the way round (to its back and on), read from the dancer's shoulder width in the picture",
-   "soft elbow: a big bend gathers in the middle as a rounded L, a small bend stays one curve",
-   "fists: each mitten balls up (a shape key, mesh unchanged) when the arm is raised and bent, opens when it reaches out or drops"
+   "fists: each mitten balls up (a shape key, mesh unchanged) when the arm is raised and bent, opens when it reaches out or drops",
+   "arms bend as one round arc that never folds, and never sink into the body (the whole arm, with its thickness, is kept outside the body's shape)"
   ],
   "not_yet": [
    "hand open/closed copied from the dancer's own hand (now from the arm pose only)",

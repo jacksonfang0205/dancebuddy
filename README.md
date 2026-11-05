@@ -154,14 +154,18 @@ uv run python -m dancebuddy compose runs/my --systems copy
   the body as the arm rises and takes half of the arm's turn; each arm is ONE bendable bone (16-segment B-bone) that
   every arm point belongs to alone, so the arm bends as one curve and keeps its width and length (only the seam
   blends with the shoulder; the arms do not squash with the body). `blender/check_arm_width.py` measures the arm's
-  width along its length in sampled frames of a run. Each mitten can ball up into a fist: a shape key per hand
+  width along its length in sampled frames of a run; `blender/check_arm_shape.py` measures the tightest bend
+  against the arm's thickness (below 1 the arm folds) and how far arm points sink into the body. Each mitten can ball up into a fist: a shape key per hand
   (`fist_L`, `fist_R`, `blender/fist.py`) that rolls the fingers up toward the back of the hand and rounds them off;
   the mesh itself is unchanged. The hair has no bones of its own and moves with the head.
   Body weights are heat-diffusion weights computed on a closed voxel copy (generated meshes are open and in pieces)
   and copied back by position; parts are found from the base-colour texture (blue = arms, dark brown = hair).
 - **Retarget** (`dancebuddy/retarget.py`). Arm directions come from the picture (monocular depth is unreliable, so
   the 3D depth is damped), kept in front of the hair and the body; the shoulder socket slides up as the arm rises;
-  a small bend is one even arc, a big bend gathers in the middle like a soft elbow (a rounded L); hands ball up into
+  every bend is one circular arc (the same curvature all along, so the thick plush tube never creases or folds),
+  and the arc keeps the arm's length (the shoulder-to-hand distance shortens as it closes); the whole arm is kept
+  out of the body: it is sampled along its arc with its thickness against the body's rest shape (`body_shape` in
+  the rig json) and, where it would sink in, turned away from the body around the shoulder; hands ball up into
   fists when the forearm is raised (fully when the arm is also bent) and open when the arm reaches out or drops.
   The body takes the dancer's side tilt and lean, compressed smoothly near the character's limits (never cut flat),
   and her turn all the way round: how far she has turned comes from how wide her shoulders look in the picture
