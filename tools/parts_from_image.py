@@ -19,10 +19,14 @@ import cv2
 import numpy as np
 
 
-def masks(im: np.ndarray, arm_hue=(95, 128)) -> dict:
+def masks(im: np.ndarray, arm_hue=(95, 128), alpha: np.ndarray | None = None,
+          arm_masks: dict | None = None) -> dict:
+    """Parts by colour. A render brings its own outline (alpha) and where each arm shows (arm_masks)."""
     hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
     H, S, V = hsv[..., 0].astype(int), hsv[..., 1] / 255.0, hsv[..., 2] / 255.0
     fg = ((S > 0.15) | (V < 0.5)).astype(np.uint8)  # the background is a light, colourless grey
+    if alpha is not None:
+        fg = (alpha > 128).astype(np.uint8)
     fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     n, lab, st, _ = cv2.connectedComponentsWithStats(fg)
     fg = (lab == 1 + np.argmax(st[1:, 4])).astype(np.uint8)
@@ -34,6 +38,9 @@ def masks(im: np.ndarray, arm_hue=(95, 128)) -> dict:
     n, lab, st, _ = cv2.connectedComponentsWithStats(blue.astype(np.uint8))
     w = im.shape[1]
     arms = {}
+    if arm_masks is not None:
+        arms = {k: v & fg for k, v in arm_masks.items() if v.any()}
+        n = 0
     for i in range(1, n):  # the arms: big blue pieces at the sides (the eyes are blue too)
         cx = st[i, 0] + st[i, 2] / 2
         if st[i, 4] > 0.002 * im.shape[0] * w and abs(cx - w / 2) > 0.2 * w:
@@ -133,11 +140,68 @@ def straighten(im: np.ndarray, arm: np.ndarray, body_centre: np.ndarray, pointin
     return out, {"root": root, "tip": tip, "root_in_picture": line[4].tolist()}
 
 
+def _resize(img: np.ndarray, f: float) -> np.ndarray:
+    return cv2.resize(img, None, fx=f, fy=f, interpolation=cv2.INTER_AREA if f < 1 else cv2.INTER_CUBIC)
+
+
+def side_views(views_dir: Path, out: Path, meta: dict, pic_height_px: float) -> None:
+    """The other sides from renders of the whole 3D model (blender/render_views_2d.py), cut the same way and
+    scaled to the picture."""
+    vmeta = json.loads((views_dir / "views.json").read_text())
+    full0 = cv2.imread(str(views_dir / "full_0.png"), cv2.IMREAD_UNCHANGED)
+    v0 = vmeta["views"]["0"]
+    f = pic_height_px / (v0["base"][1] - float(np.nonzero(full0[:, :, 3] > 128)[0].min()))
+    for yaw, v in vmeta["views"].items():
+        if yaw == "0":
+            continue
+        full = cv2.imread(str(views_dir / f"full_{yaw}.png"), cv2.IMREAD_UNCHANGED)
+        arm_m = {s: cv2.imread(str(views_dir / f"armvis_{s}_{yaw}.png"), cv2.IMREAD_UNCHANGED)[:, :, 3] > 100
+                 for s in "LR"}
+        rgb, al = full[:, :, :3], full[:, :, 3]
+        m = masks(rgb, alpha=al, arm_masks=arm_m)
+        fig, filled = fill_behind_arms(rgb, m)
+        any_arm = np.zeros(al.shape, bool)
+        for x in m["arms"].values():
+            any_arm |= x
+        cover = cv2.dilate(any_arm.astype(np.uint8), np.ones((13, 13), np.uint8)) > 0
+        a8 = np.where(cover, filled.astype(np.uint8) * 255, al).astype(np.uint8)
+        figure = _resize(np.dstack([fig, a8]), f)
+        cv2.imwrite(str(out / f"figure_{yaw}.png"), figure)
+        if int(yaw) >= 135:  # back turned: the hair is drawn over the arms
+            hair = _resize(np.dstack([fig, np.where(m["hair"], a8, 0).astype(np.uint8)]), f)
+            cv2.imwrite(str(out / f"hair_vis_{yaw}.png"), hair)
+        meta["views"][yaw] = {k: ([round(c * f, 1) for c in val] if isinstance(val, list) else val)
+                              for k, val in v.items() if k != "px_per_m"}
+
+
+def fist_sprites(out: Path, meta: dict, fist_dir: Path) -> None:
+    """Fists from the 3D model's straight arm, scaled and placed onto the picture's arm (root to tip)."""
+    fmeta = json.loads((fist_dir / "parts.json").read_text())
+    for s in "LR":
+        open_ = cv2.imread(str(out / f"arm_{s}.png"), cv2.IMREAD_UNCHANGED)
+        fz = cv2.imread(str(fist_dir / f"arm_{s}_fist.png"), cv2.IMREAD_UNCHANGED)
+        r0, t0 = (np.array(fmeta["arms"][s][k], float) for k in ("root", "tip"))
+        r1, t1 = (np.array(meta["arms"][s][k], float) for k in ("root", "tip"))
+        k = np.linalg.norm(t1 - r1) / np.linalg.norm(t0 - r0)
+        A = np.array([[k, 0, r1[0] - k * r0[0]], [0, k, r1[1] - k * r0[1]]], np.float32)
+        pad = 60
+        big = np.zeros((open_.shape[0] + 2 * pad, open_.shape[1], 4), np.uint8)
+        big[pad:pad + open_.shape[0]] = open_
+        A[1, 2] += pad
+        warped = cv2.warpAffine(fz, A, (big.shape[1], big.shape[0]), flags=cv2.INTER_AREA,
+                                borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+        cv2.imwrite(str(out / f"arm_{s}.png"), big)
+        cv2.imwrite(str(out / f"arm_{s}_fist.png"), warped)
+        meta["arms"][s] = {"root": [r1[0], r1[1] + pad], "tip": [t1[0], t1[1] + pad]}
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("picture")
     p.add_argument("out")
     p.add_argument("--rig", required=True, help="the character's rig json (its height, for scale)")
+    p.add_argument("--views", help="renders of the whole 3D model from other sides (blender/render_views_2d.py)")
+    p.add_argument("--fists", help="parts rendered from the 3D model with fists (blender/render_parts_2d.py)")
     a = p.parse_args()
     im = cv2.imread(a.picture)
     out = Path(a.out)
@@ -161,6 +225,10 @@ def main():
         meta["arms"][side] = {"root": info["root"], "tip": info["tip"]}
         meta["views"]["0"][f"shoulder_{side}"] = info["root_in_picture"]
         meta["views"]["0"][f"shoulder_{side}_depth"] = -0.3
+    if a.fists:
+        fist_sprites(out, meta, Path(a.fists))
+    if a.views:
+        side_views(Path(a.views), out, meta, base[1] - top_all)
     (out / "parts.json").write_text(json.dumps(meta, indent=1))
     print("wrote", out, "arm lengths px", {s: round(meta["arms"][s]["tip"][0] - meta["arms"][s]["root"][0]) for s in "LR"})
 

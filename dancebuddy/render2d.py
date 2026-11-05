@@ -84,11 +84,12 @@ class Parts:
             f = cv2.imread(str(folder / f"figure_{y}.png"), cv2.IMREAD_UNCHANGED)
             self.fig[y] = _fill_black(_fill_holes(f)) if self.from_render else f
             hp, bp = folder / f"hair_vis_{y}.png", folder / f"body_{y}.png"
-            if hp.exists() and bp.exists():
+            if hp.exists():
                 h = cv2.imread(str(hp), cv2.IMREAD_UNCHANGED)
-                body = cv2.imread(str(bp), cv2.IMREAD_UNCHANGED)
-                near = cv2.dilate((body[:, :, 3] > 128).astype(np.uint8), np.ones((15, 15), np.uint8))
-                h[:, :, 3] = h[:, :, 3] * near  # only the hair lying over the body
+                if bp.exists():
+                    body = cv2.imread(str(bp), cv2.IMREAD_UNCHANGED)
+                    near = cv2.dilate((body[:, :, 3] > 128).astype(np.uint8), np.ones((15, 15), np.uint8))
+                    h[:, :, 3] = h[:, :, 3] * near  # only the hair lying over the body
                 self.hair[y] = h
         self.arm = {}
         for s in "LR":
