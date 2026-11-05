@@ -10,7 +10,8 @@ The rig follows the character's motion spec (assets/<name>_motion_spec.json), wh
                 rolling the fingers up toward the back of the hand (blender/fist.py)
   * hair      : no bones of its own; it moves with the head (not animated separately)
 
-The mesh is never edited. Parts are found from the base-colour texture (arms = blue, hair = dark brown). Weights
+The rest shape is never changed. The arms are cut loose from the body along where the model fused them, with a
+skin patch under each (blender/unstitch.py), so a moving arm only touches the body. Parts are found from the base-colour texture (arms = blue, hair = dark brown). Weights
 come from Blender's heat diffusion ("automatic weights") computed on a closed voxel copy of the body (generated
 meshes are open and in many pieces, which heat weighting cannot handle) and copied back to every vertex by
 position, so the original surface deforms smoothly and seams stay closed.
@@ -29,6 +30,7 @@ from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fist import fist_shape, smooth_shape  # noqa: E402
+from unstitch import unstitch_arms  # noqa: E402
 from scene_utils import setup_render  # noqa: E402
 
 FORWARD = Vector((0, -1, 0))  # the character faces the camera, which looks along +Y
@@ -42,6 +44,10 @@ def parse():
     p.add_argument("--arm-hue", type=float, nargs=2, default=[190, 260], help="hue range (deg) of the arms")
     p.add_argument("--hair-max-value", type=float, default=0.45, help="hair is darker than this (HSV value)")
     p.add_argument("--voxel", type=float, default=0.012, help="voxel size of the weighting copy, x height")
+    p.add_argument("--seam-band", type=float, default=0.05, help="body band around each arm seam, x height")
+    p.add_argument("--seam-follow", type=float, default=0.0, help="how much that band follows the shoulder")
+    p.add_argument("--keep-stitched", action="store_true",
+                   help="leave the arms fused to the body as modelled (they then drag the body skin along)")
     return p.parse_args(argv)
 
 
@@ -130,6 +136,15 @@ def main():
     low = is_body & (co[:, 2] < 0.3 * height)
     cx, cy = float(co[low, 0].mean()), float(co[low, 1].mean())
     print(f"vertices: arms {is_arm.sum()}, hair {is_hair.sum()}, body {is_body.sum()}; body centre ({cx:.3f}, {cy:.3f})")
+    patch = np.zeros(len(co), bool)
+    if not a.keep_stitched:
+        n0 = len(co)
+        orig, is_arm, is_hair = unstitch_arms(me, is_arm, is_hair, (cx, cy))
+        co, vuv = mesh_arrays(me)
+        is_body = ~is_arm & ~is_hair
+        patch = orig < 0
+        print(f"arms cut loose from the body: {len(co) - n0} points added ({int((orig < 0).sum())} in the skin "
+              f"patches under the arms)")
 
     # ---- skeleton geometry
     z_low, z_mid = 0.2 * height, 0.55 * height
@@ -275,8 +290,8 @@ def main():
         W[m, col[f"arm_{side}_1"]] = on[m]
         # the body band around the seam follows the socket a little
         dist, _ = _T(co[m]).query(co, k=1)
-        band = is_body & (dist < 0.05 * height)
-        f = 0.3 * (1 - dist[band] / (0.05 * height))
+        band = is_body & (dist < a.seam_band * height)
+        f = a.seam_follow * (1 - dist[band] / (a.seam_band * height))
         W[band] *= (1 - f)[:, None]
         W[band, col[f"arm_{side}_0"]] += f
     W /= np.maximum(W.sum(1, keepdims=True), 1e-9)
@@ -355,6 +370,8 @@ def main():
     for j, n in enumerate(deform):
         for vi in np.nonzero(W[:, j] > 1e-3)[0]:
             groups[n].add([int(vi)], float(W[vi, j]), "REPLACE")
+    if patch.any():  # marks the hidden skin under the arms (not a bone: it does not deform anything)
+        body.vertex_groups.new(name="skin_patch").add([int(i) for i in np.nonzero(patch)[0]], 1.0, "REPLACE")
     mod = body.modifiers.new("Armature", "ARMATURE")
     mod.object = rig
     mod.use_deform_preserve_volume = True

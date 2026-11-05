@@ -5,7 +5,7 @@ For sampled frames of a curves.json, pose the rig and measure per arm:
   fold    the tightest bend along the arm, as (radius of the bend) / (half the arm's thickness): below 1 the inside
           of the bend folds over itself (the arm looks broken), around 1-2 it creases
   kink    the largest turn between two neighbouring B-bone segments (deg): a smooth curve spreads its turn
-  inside  how deep arm points sink into the body (cm), and how many points do
+  inside  how deep arm points sink into the body (cm) beyond how they sit at rest, and how many points do
 
   python blender/check_arm_shape.py -- --blend assets/plush_soft.blend --curves runs/x/copy/curves.json
 """
@@ -92,6 +92,9 @@ def main():
     is_body[any_arm] = False
     is_body &= ~hair_like
     is_body &= rest[:, 2] > 0.02 * height
+    if "skin_patch" in body.vertex_groups:  # the hidden skin under each arm: the arm lies on it at rest
+        pg = body.vertex_groups["skin_patch"].index
+        is_body[[v.index for v in body.data.vertices if any(g.group == pg for g in v.groups)]] = False
     # half thickness of each arm (its thinnest direction across the arm, at rest), for the fold ratio
     half = {}
     for s in "LR":
@@ -108,18 +111,35 @@ def main():
     n = int(curves["n_frames"])
     frames = range(n) if a.frames <= 0 else np.unique(np.linspace(0, n - 1, min(a.frames, n)).astype(int))
     from scipy.spatial import cKDTree
-    rows = []
-    for f in frames:
-        f = int(f)
-        pose(rig, body, curves, f)
+    def depths(P, N):
+        """How deep each arm point sits behind the body surface next to it (m), per arm."""
+        bP, bN = P[is_body], N[is_body]
+        tree = cKDTree(bP)
+        out = {}
+        for s in "LR":
+            ap = P[arm_pts[s]]
+            d, k = tree.query(ap)
+            out[s] = np.where(d < 0.08 * height, -((ap - bP[k]) * bN[k]).sum(1), -1.0)
+        return out
+
+    def evaluated():
         bpy.context.view_layer.update()
         dg = bpy.context.evaluated_depsgraph_get()
         ev = body.evaluated_get(dg).to_mesh()
         P = np.array([v.co[:] for v in ev.vertices])
         N = np.array([v.normal[:] for v in ev.vertices])
         body.evaluated_get(dg).to_mesh_clear()
-        tree = cKDTree(P[is_body])
-        bP, bN = P[is_body], N[is_body]
+        return P, N
+
+    # how the model itself sits: parts of an arm already lie in the body at rest; only sinking in deeper counts
+    pose(rig, body, {"channels": {}}, 0)
+    rest_depth = {s: np.maximum(v, 0.0) for s, v in depths(*evaluated()).items()}
+    rows = []
+    for f in frames:
+        f = int(f)
+        pose(rig, body, curves, f)
+        P, N = evaluated()
+        dep = depths(P, N)
         row = {"frame": f}
         for s in "LR":
             pb = rig.pose.bones[f"arm_{s}_1"]
@@ -132,12 +152,9 @@ def main():
             # in the bending plane (between thin and wide: take the thin one, the arm bends flat-wise mostly)
             r = seg_len / np.maximum(np.radians(turn), 1e-6)
             fold = float(r.min() / half[s][0])
-            # arm points inside the body: behind the nearest body point's surface
-            ap = P[arm_pts[s]]
-            d, k = tree.query(ap)
-            depth = -((ap - bP[k]) * bN[k]).sum(1)
-            near = d < 0.08 * height
-            sunk = depth[near & (depth > 0.005 * height)]
+            # arm points inside the body: behind the nearest body point's surface, deeper than at rest
+            depth = dep[s] - rest_depth[s]
+            sunk = depth[depth > 0.005 * height]
             row[s] = {"fold": round(fold, 2), "kink_deg": round(float(turn.max()), 1),
                       "bend_deg": round(float(np.degrees(np.arccos(np.clip(ys[0] @ ys[-1], -1, 1)))), 1),
                       "inside_pts": int(len(sunk)), "inside_cm": round(float(sunk.max() * 100) if len(sunk) else 0.0, 1)}

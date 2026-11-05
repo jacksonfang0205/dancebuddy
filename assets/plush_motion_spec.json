@@ -11,7 +11,7 @@
    "hands": "flat mittens at the ends of the arms; they open (reaching, hanging) or ball up into fists (raised, bent, punching)"
   },
   "connections": {
-   "shoulder": "a socket on the side of the body. The arm turns in it like a plush toy's sewn-on arm; the body around it does not stretch or follow the arm.",
+   "shoulder": "a socket on the side of the body. The arm turns in it like a plush toy's sewn-on arm; the body around it does not stretch or follow the arm: the arm only touches the body, it never drags the body's skin along",
    "socket_slides": "as an arm rises the socket slides up the side of the body: a hanging arm starts beside the chest, a raised arm starts beside the face. This is what lets raised hands reach above the head.",
    "arm_over_body": "wherever the arm goes it passes in front: in front of the body when it crosses the chest, in front of the hair when it is raised. The joint itself is hidden behind the arm.",
    "hair_to_head": "the hair stays on the scalp; only its lower part swings",
@@ -130,7 +130,7 @@
  },
  "rig": {
   "file": "plush_soft.blend, made by blender/rig_soft.py from plush.blend (the mesh is not edited)",
-  "how": "designed from the connections above; the mesh is not edited. Root at the base of the body; a hidden shoulder bone per arm (pivot just inside the seam) slides the seam up the body as the arm rises and takes half of the arm's turn; each arm is ONE 16-segment bendable bone (B-bone) with every arm point on it alone, so it bends as a curve and keeps its width (blender/check_arm_width.py checks this); only the seam blends with the shoulder; each mitten has a fist shape key (fist_L, fist_R) it blends into; hair has no bones and moves with the head. Body weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
+  "how": "designed from the connections above; the rest shape is not changed, but each arm is cut loose from the body where the model fused it, with a hidden skin patch under it, so it only touches the body. Root at the base of the body; a hidden shoulder bone per arm (pivot just inside the seam) slides the seam up the body as the arm rises and takes half of the arm's turn; each arm is ONE 16-segment bendable bone (B-bone) with every arm point on it alone, so it bends as a curve and keeps its width (blender/check_arm_width.py checks this); only the seam blends with the shoulder; each mitten has a fist shape key (fist_L, fist_R) it blends into; hair has no bones and moves with the head. Body weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
   "driven_by": "dancebuddy/retarget.py"
  },
  "known_gaps": [
