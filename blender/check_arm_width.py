@@ -16,7 +16,8 @@ import sys
 import bpy
 import numpy as np
 
-BBONE = ("bbone_curveinx", "bbone_curveinz", "bbone_curveoutx", "bbone_curveoutz", "bbone_rollin", "bbone_rollout")
+BBONE = ("bbone_curveinx", "bbone_curveinz", "bbone_curveoutx", "bbone_curveoutz", "bbone_rollin", "bbone_rollout",
+         "bbone_easein", "bbone_easeout")
 
 
 def parse():

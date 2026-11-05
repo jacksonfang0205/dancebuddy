@@ -10,6 +10,7 @@ Channel -> pose bone mapping (bones point up, so bone-local Y is the bone axis):
   <bone>.bbone -> B-bone curve [curve in x, in z, out x, out z, roll in, roll out] (a soft limb bending)
   <bone>.loc -> head offset [x, y, z] in the bone's rest frame
   <bone>.stretch -> length factor along the bone (thickness mostly kept)
+  <arm>.fist -> shape key fist_<side> of the Body (0 open hand .. 1 fist)
   <bone>.quat -> rotation quaternion [w, x, y, z] in the bone's rest frame (overrides the Euler channels)
 """
 
@@ -25,7 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scene_utils import setup_render  # noqa: E402
 
 AXIS = {"lean": 0, "twist": 1, "sway": 2}
-BBONE_PROPS = ("bbone_curveinx", "bbone_curveinz", "bbone_curveoutx", "bbone_curveoutz", "bbone_rollin", "bbone_rollout")
+BBONE_PROPS = ("bbone_curveinx", "bbone_curveinz", "bbone_curveoutx", "bbone_curveoutz", "bbone_rollin", "bbone_rollout",
+               "bbone_easein", "bbone_easeout")
 
 
 def parse():
@@ -60,6 +62,7 @@ def main():
     for pb in pbones:
         pb.rotation_mode = "XYZ"
 
+    keys = bpy.data.objects["Body"].data.shape_keys if "Body" in bpy.data.objects else None
     for f in range(n):
         for pb in pbones:
             pb.rotation_euler = (0, 0, 0)
@@ -83,9 +86,9 @@ def main():
                 pb.rotation_euler = r
             elif ch == "lift":
                 pb.location = (0, v, 0)
-            elif ch == "bbone":  # B-bone curve: [curve in x, in z, out x, out z, roll in, roll out]
-                (pb.bbone_curveinx, pb.bbone_curveinz, pb.bbone_curveoutx, pb.bbone_curveoutz,
-                 pb.bbone_rollin, pb.bbone_rollout) = v
+            elif ch == "bbone":  # B-bone curve: [curve in x, in z, out x, out z, roll in, roll out, ease in, ease out]
+                for prop, x in zip(BBONE_PROPS, v):
+                    setattr(pb, prop, x)
             elif ch == "loc":  # move a bone's head, [x, y, z] in its rest frame (e.g. a shoulder sliding up)
                 pb.location = v
             elif ch == "scale":  # [x, y, z] in the bone's frame (e.g. a soft body bulging)
@@ -96,6 +99,11 @@ def main():
             elif ch == "squash":
                 s = max(0.3, 1 - v)
                 pb.scale = (1 / math.sqrt(s), s, 1 / math.sqrt(s))
+            elif ch == "fist":  # a hand balling up: shape key fist_L / fist_R
+                key = f"fist_{bone.split('_')[1]}"
+                if keys is not None and key in keys.key_blocks:
+                    keys.key_blocks[key].value = float(v)
+                    keys.key_blocks[key].keyframe_insert("value", frame=f + 1)
         for pb in pbones:
             pb.keyframe_insert("rotation_quaternion" if pb.rotation_mode == "QUATERNION" else "rotation_euler",
                                frame=f + 1)

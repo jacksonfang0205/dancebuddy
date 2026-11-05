@@ -23,7 +23,9 @@ from .beats import smooth
 from .perception import L_EL, L_HIP, L_SH, L_WR, R_EL, R_HIP, R_SH, R_WR
 
 # the character's range (motion spec "can_do"): the dancer is copied at full size and compressed softly near these
-BODY = {"turn_max": 60.0, "side_max": 25.0, "lean_max": 20.0}
+BODY = {"turn_max": 180.0,       # it can turn all the way round (motion spec)
+        "side_max": 25.0, "lean_max": 20.0,
+        "turn_quiet_deg": 30.0}  # turns below this (by the shoulder width) are softened: there it is mostly noise
 # the body is a soft bag that keeps its volume (motion spec body_soft): part of every sideways tilt is a bend of the
 # body itself (a C curve from the base), a hip lift bends it toward the lifted hip, hips swaying under a still torso
 # make an S, and the pressed bag bulges: the lower body gets wider and shorter as it bends
@@ -46,12 +48,19 @@ GROOVE = {"tilt_deg": 5.0, "twist_deg": 7.0, "bend_deg": 5.0, "bend_delay_s": 0.
 # style from the spec's "tends_to": arms lead and the body follows, soft arms, squash low / stretch high
 STYLE = {"straight_above_deg": 120,         # raised arms straighten out (reference: arms up are straight)
          "bend_share": 0.8,                 # how much of the dancer's elbow bend the soft arm takes, as one arc
+         "elbow_from_deg": 40.0,            # bends bigger than this start to gather in the middle (soft elbow)
+         "elbow_full_deg": 90.0,            # ...and are a full soft elbow from here on
+         "elbow_ease": 1.2,                 # how much (extra B-bone ease) for a full soft elbow
          # the shoulder is a socket that slides up the side of the body as the arm rises (reference: a raised
          # arm starts beside the face, a hanging arm beside the chest), so raised hands get above the head
          "socket_slide": 0.12,              # how far the seam slides up the body for a vertical arm (body heights)
          "root_share": 0.5,                 # part of the arm's turn taken at the seam, so the root turns with the
                                             # arm instead of folding (the shoulder pivots just inside the seam)
          "socket_slide_from_deg": 80,
+         # hands ball up into fists when the arm is raised and bent, and open when it reaches out or drops
+         "fist_from_deg": 95.0,             # the forearm points this far up (0 down, 90 level) before the hand closes
+         "fist_full_deg": 140.0,            # ...and is a full fist from here, if the arm is also bent
+         "fist_straight": 0.6,              # how far a raised but straight arm closes its hand
          "forearm_lag_s": 0.07,             # the end of the arm trails the upper arm a little
          "follow_tilt_deg": 6.0,            # the body leans toward the higher arm...
          "follow_delay_s": 0.4,             # ...about this long after the arms move
@@ -92,6 +101,42 @@ def limb_dirs(kp: dict, w: np.ndarray, a: int, b: int, aspect: float) -> np.ndar
     d = np.c_[dx, dy, dz]
     d = np.stack([smooth(d[:, k], 1.5) for k in range(3)], -1)
     return _norm(d)
+
+
+def body_turn(kp: dict, T: np.ndarray) -> np.ndarray:
+    """(N,) degrees the dancer has turned, + = her left side away from the camera; up to 180 (her back).
+
+    How far: from how wide her shoulders look in the picture compared with facing the camera (monocular depth is
+    not reliable enough to measure it); which way: from the 3D estimate (only its sign is needed). Past side-on
+    (shoulders swapped in the picture) counts only when both shoulders are clearly seen for a few frames in a
+    row; otherwise the turn stops at side-on. Near facing the camera the width barely changes with the turn, so
+    small wobbles there (pose noise, arm swings) are not read as turns."""
+    im, vis = kp["image"], kp.get("visibility")
+    fps = float(kp.get("fps", 30.0))
+    aspect = image_aspect(kp)
+    sw = (im[:, L_SH, 0] - im[:, R_SH, 0]) * aspect
+    torso = np.abs((im[:, L_HIP, 1] + im[:, R_HIP, 1] - im[:, L_SH, 1] - im[:, R_SH, 1]) / 2)
+    r = smooth(sw / np.maximum(torso, 1e-6), 0.06 * fps)
+    front = max(float(np.percentile(r, 90)), 1e-6)
+    seen = np.ones(len(r), bool) if vis is None else (np.minimum(vis[:, L_SH], vis[:, R_SH]) >= 0.8)
+    back = (r < 0) & seen
+    run = np.zeros(len(r), bool)  # swapped and seen for at least 5 frames in a row
+    i = 0
+    while i < len(r):
+        if back[i]:
+            j = i
+            while j < len(r) and back[j]:
+                j += 1
+            run[i:j] = (j - i) >= 5
+            i = j
+        else:
+            i += 1
+    ratio = np.where(run, r / front, np.maximum(r / front, 0.0))
+    mag = np.degrees(np.arccos(np.clip(ratio, -1, 1)))
+    g = np.clip(mag / BODY["turn_quiet_deg"], 0, 1)
+    mag = mag * g * g * (3 - 2 * g)                           # soft dead zone near facing the camera
+    sign = np.sign(smooth(T[:, 1, 0], 0.1 * fps) + 1e-9)      # which shoulder is farther from the camera
+    return smooth(mag * sign, 0.05 * fps)
 
 
 def hip_tilt(kp: dict, aspect: float) -> np.ndarray:
@@ -189,7 +234,7 @@ def _hand_roll(n: np.ndarray, d: np.ndarray) -> float:
 def arm_pose(M: dict, name: str, u: np.ndarray, f: np.ndarray, sign: int,
              parent: Rot | None = None, scale: float = 1.0, face: list | None = None) -> tuple[list, list]:
     """Pose of a one-bone soft arm (a B-bone): its rotation [w, x, y, z] and its curve [curve in x, in z,
-    out x, out z, roll in, roll out].
+    out x, out z, roll in, roll out, ease in, ease out].
 
     The arm is one bendable tube that keeps its width and length: the bone points from the shoulder toward the
     hand, the curve leans its start toward the dancer's upper arm and its end toward the forearm (the elbow
@@ -210,7 +255,13 @@ def arm_pose(M: dict, name: str, u: np.ndarray, f: np.ndarray, sign: int,
         c = Rot.from_rotvec(c.as_rotvec() * scale)
     frame = c * Rot.from_matrix(M[name])             # bone axes -> armature
     chord = frame.apply([0.0, 1.0, 0.0])
-    share = STYLE["bend_share"] * scale
+    # a big bend gathers in the middle like a soft elbow (motion spec): it takes the whole bend (a rounded L),
+    # and longer curve handles keep both ends straighter, so the turn happens in the middle; a small bend stays
+    # one gentle curve that takes only part of the dancer's bend
+    g = elbow_amount(u, f)
+    share = (STYLE["bend_share"] + (1 - STYLE["bend_share"]) * g) * scale
+    ease = g * STYLE["elbow_ease"]
+    handle = length / 3 * (1 + ease)                  # B-bone handle length = length / 3 x ease
 
     def lean(vec: np.ndarray) -> tuple[np.ndarray, float]:
         """Handle offset (bone x, z) that tilts the curve's tangent toward vec, and that tilt (radians)."""
@@ -219,7 +270,7 @@ def arm_pose(M: dict, name: str, u: np.ndarray, f: np.ndarray, sign: int,
         ang = min(float(np.arctan2(np.linalg.norm(perp), loc[1])) * share, np.radians(60))
         if np.linalg.norm(perp) < 1e-6:
             return np.zeros(2), 0.0
-        return np.tan(ang) * length / 3 * perp / np.linalg.norm(perp), ang   # B-bone handle = length / 3
+        return np.tan(ang) * handle * perp / np.linalg.norm(perp), ang
 
     cin, _ = lean(u)
     out_off, a_out = lean(f)
@@ -230,8 +281,23 @@ def arm_pose(M: dict, name: str, u: np.ndarray, f: np.ndarray, sign: int,
         bend_end = Rot.from_rotvec(_norm(ax) * a_out) if np.linalg.norm(ax) > 1e-6 else Rot.identity()
         roll = _hand_roll(bend_end.apply(c.apply(np.asarray(face, float))), bend_end.apply(chord))
     q = _local(M[name], parent, c)
-    curve = [round(float(x), 5) for x in (cin[0], cin[1], cout[0], cout[1], 0.0, roll)]
+    curve = [round(float(x), 5) for x in (cin[0], cin[1], cout[0], cout[1], 0.0, roll, ease, ease)]
     return q, curve
+
+
+def elbow_amount(u: np.ndarray, f: np.ndarray) -> float:
+    """0 for a small bend (one gentle curve) .. 1 for a big bend (a full soft elbow)."""
+    bend = float(np.degrees(np.arccos(np.clip(_norm(u) @ _norm(f), -1, 1))))
+    return float(np.clip((bend - STYLE["elbow_from_deg"]) / (STYLE["elbow_full_deg"] - STYLE["elbow_from_deg"]), 0, 1))
+
+
+def fist_amount(u: np.ndarray, f: np.ndarray) -> float:
+    """How far the hand is balled up (0 open .. 1 fist), from the motion spec: fists for raised, bent arms, open
+    hands for reaching out or hanging. Raised = the forearm points up; a straight raised arm closes partly."""
+    up = (raise_deg(_norm(f)) - STYLE["fist_from_deg"]) / (STYLE["fist_full_deg"] - STYLE["fist_from_deg"])
+    up = float(np.clip(up, 0, 1))
+    up = up * up * (3 - 2 * up)
+    return up * (STYLE["fist_straight"] + (1 - STYLE["fist_straight"]) * elbow_amount(u, f))
 
 
 def beat_phase(n: int, beats: list[int]) -> np.ndarray:
@@ -289,8 +355,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
 
     # ---- body: turn, side tilt, forward lean of the dancer's torso, scaled to the character
     X, Z = T[:, :, 0], T[:, :, 2]
-    turn = np.degrees(np.arctan2(X[:, 1], X[:, 0]))          # + = dancer's left side turns away from the camera
-    turn = smooth(np.degrees(np.unwrap(np.radians(turn))), 2.0)
+    turn = body_turn(kp, T)                                  # + = dancer's left side turns away from the camera
     side, lean = [], []
     for i in range(n):
         z = Rot.from_euler("z", -turn[i], degrees=True).apply(Z[i])
@@ -359,6 +424,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         if name not in M:
             continue
         ch[f"{name}.quat"], ch[f"{name}.bbone"] = [], []
+        fist = np.zeros(n)
         socket = f"arm_{side_name}_0" if f"arm_{side_name}_0" in M else None
         if socket:
             ch[f"{socket}.quat"] = []
@@ -378,6 +444,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
                                 face=rig.get("hand_face", {}).get(side_name))
             ch[f"{name}.quat"].append(q)
             ch[f"{name}.bbone"].append(curve)
+            fist[i] = fist_amount(u, f)
+        if f"fist_{side_name}" in rig.get("shape_keys", {}):
+            ch[f"{name}.fist"] = [round(float(x), 3) for x in np.clip(smooth(fist, 0.05 * fps), 0, 1)]
 
     return {"fps": fps, "n_frames": n, "character": rig.get("name", "character"), "channels": ch,
             "retarget": {"body": BODY, "soft": SOFT, "style": STYLE, "groove": GROOVE},

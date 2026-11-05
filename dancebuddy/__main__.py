@@ -148,7 +148,13 @@ def cmd_copy(a):
     rig = load(Path(str(a.char) + "_rig.json"))
     score = run_dir / "dance_score.json"
     beats = load(score)["beats"] if score.exists() else None
-    curves = retarget(load_keypoints(run_dir / "keypoints.npz"), rig, beats=beats)
+    kp = load_keypoints(run_dir / "keypoints.npz")
+    if a.plan:  # re-apply a saved plan (e.g. an agent's plan.json) without asking the LLM again
+        from .signals import compute_signals
+        curves = retarget(kp, rig, signals=compute_signals(kp), beats=beats, plan=load(Path(a.plan)),
+                          score=load(score))
+    else:
+        curves = retarget(kp, rig, beats=beats)
     out = run_dir / a.name
     out.mkdir(exist_ok=True)
     (out / "curves.json").write_text(json.dumps(curves))
@@ -356,6 +362,7 @@ def main(argv=None):
     s = add("baseline", cmd_baseline, "run"); char_opt(s)
     s = add("apply", cmd_apply, "run", "plan"); char_opt(s); s.add_argument("--name", default="handwritten")
     s = add("copy", cmd_copy, "run"); char_opt(s); s.add_argument("--name", default="copy")
+    s.add_argument("--plan", help="a saved copy plan (e.g. runs/x/agent_copy/plan.json) to apply, no LLM")
     s = add("copy-agent", cmd_copy_agent, "run"); char_opt(s); s.add_argument("--name", default="agent_copy")
     s.add_argument("--attempts", type=int, default=4); s.add_argument("--model")
     s = add("render", cmd_render, "run"); char_opt(s); render_opts(s)

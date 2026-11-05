@@ -261,3 +261,17 @@ def test_copy_agent_revises_and_keeps_the_best(synth, tmp_path, monkeypatch):
     report = json.loads(seen[2]["content"])          # what the model saw after its first plan
     assert "checks" in report and "units" in report
     assert (tmp_path / "curves.json").exists() and (tmp_path / "plan.json").exists()
+
+
+def test_hands_ball_up_for_raised_bent_arms():
+    """Motion spec: fists for raised, bent arms; open hands when the arm hangs, reaches out or lies across."""
+    import numpy as np
+    from dancebuddy.retarget import elbow_amount, fist_amount
+    out, up, down, across = map(np.array, ((1.0, 0, 0), (0, 0, 1.0), (0, 0, -1.0), (-1.0, 0, 0)))
+    assert fist_amount(out, up) > 0.95                 # upper arm out, forearm up: a soft elbow and a fist
+    assert elbow_amount(out, up) == 1.0
+    assert fist_amount(down, down) == 0.0              # hanging
+    assert fist_amount(out, out) == 0.0                # reaching out
+    assert fist_amount(out, across) == 0.0             # across the chest
+    assert 0.4 < fist_amount(up, up) < 0.8             # straight up: partly closed
+    assert elbow_amount(out, (0.95, 0, 0.3)) == 0.0    # a small bend stays one curve

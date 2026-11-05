@@ -1,6 +1,6 @@
 {
  "character": "plush",
- "version": 5,
+ "version": 6,
  "what_this_is": "How this character moves: its pose vocabulary, and for each kind of pose how the parts move and how they connect. Learned by watching reference videos of the character dancing (two Jimeng motion-imitation clips; their hallucinated feet are ignored). These are qualitative rules, not numbers: a new dance has new angles and timings, but the character should still move and connect this way. 'status' says whether the current rig and copy already do it.",
  "body": {
   "parts": {
@@ -130,7 +130,7 @@
  },
  "rig": {
   "file": "plush_soft.blend, made by blender/rig_soft.py from plush.blend (the mesh is not edited)",
-  "how": "designed from the connections above; the mesh is not edited. Root at the base of the body; a hidden shoulder bone per arm (pivot just inside the seam) slides the seam up the body as the arm rises and takes half of the arm's turn; each arm is ONE 16-segment bendable bone (B-bone) with every arm point on it alone, so it bends as a curve and keeps its width (blender/check_arm_width.py checks this); only the seam blends with the shoulder; hair has no bones and moves with the head. Body weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
+  "how": "designed from the connections above; the mesh is not edited. Root at the base of the body; a hidden shoulder bone per arm (pivot just inside the seam) slides the seam up the body as the arm rises and takes half of the arm's turn; each arm is ONE 16-segment bendable bone (B-bone) with every arm point on it alone, so it bends as a curve and keeps its width (blender/check_arm_width.py checks this); only the seam blends with the shoulder; each mitten has a fist shape key (fist_L, fist_R) it blends into; hair has no bones and moves with the head. Body weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
   "driven_by": "dancebuddy/retarget.py"
  },
  "known_gaps": [
@@ -146,13 +146,14 @@
    "leg translation (jump, kick, step, squat, rise, slide)",
    "body groove on the beat",
    "soft body: side tilts are partly a C bend of the body, hip lifts bend it toward the lifted hip, hips swaying under the torso make an S, the bent lower body bulges (wider, shorter, same volume)",
-   "tilting on the base rises like a roly-poly toy, so the bottom never sinks into the floor"
+   "tilting on the base rises like a roly-poly toy, so the bottom never sinks into the floor",
+   "spin: the body turns all the way round (to its back and on), read from the dancer's shoulder width in the picture",
+   "soft elbow: a big bend gathers in the middle as a rounded L, a small bend stays one curve",
+   "fists: each mitten balls up (a shape key, mesh unchanged) when the arm is raised and bent, opens when it reaches out or drops"
   ],
   "not_yet": [
-   "spin: the body turn is limited (about 60 deg)",
-   "soft elbow for big arm bends: big bends are still one even curve",
-   "fists: no finger bones yet",
-   "hair moves with the head only",
+   "hand open/closed copied from the dancer's own hand (now from the arm pose only)",
+   "hair moves with the head only (hair animation dropped)",
    "facial expression"
   ]
  }

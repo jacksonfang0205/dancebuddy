@@ -6,6 +6,8 @@ The rig follows the character's motion spec (assets/<name>_motion_spec.json), wh
                 (a raised arm starts beside the face)
   * arms      : arm_X_1, one bendable bone (16-segment B-bone) per arm: it bends as one smooth curve and keeps its
                 width and length (no elbow, no blending between bones along the arm)
+  * hands     : each mitten can ball up into a fist: a shape key (fist_L / fist_R) the hand blends into, made by
+                rolling the fingers up toward the back of the hand (blender/fist.py)
   * hair      : no bones of its own; it moves with the head (not animated separately)
 
 The mesh is never edited. Parts are found from the base-colour texture (arms = blue, hair = dark brown). Weights
@@ -26,6 +28,7 @@ import numpy as np
 from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fist import fist_shape, smooth_shape  # noqa: E402
 from scene_utils import setup_render  # noqa: E402
 
 FORWARD = Vector((0, -1, 0))  # the character faces the camera, which looks along +Y
@@ -295,6 +298,28 @@ def main():
         faces[side] = [round(float(x), 4) for x in (n if n[1] < 0 else -n)]  # toward the camera (-Y) at rest
         print(f"arm_{side} hand face (rest): {faces[side]}")
 
+    # fists (motion spec: hands ball up when the arm is raised and bent): a shape key per hand, in the rest pose,
+    # so the armature bends the fist like the open hand; the mesh itself stays as it is
+    body.shape_key_add(name="Basis")
+    knuckle = 0.72
+    for side, d in arms.items():
+        m = np.nonzero(W[:, col[f"arm_{side}_1"]] > 0.5)[0]
+        h0, t0 = np.array(d["pts"][0]), np.array(d["pts"][-1])
+        length = float(np.linalg.norm(t0 - h0))
+        ax = (t0 - h0) / length
+        rel = co[m] - h0
+        s_h = rel @ ax / length
+        new = co.copy()
+        new[m] = fist_shape(rel, s_h, length, ax, np.array(faces[side]), knuckle=knuckle, turn_deg=240,
+                            press=0.35, narrow=0.85) + h0
+        moving = np.zeros(len(co), bool)
+        moving[m[s_h > knuckle - 0.04]] = True
+        new = smooth_shape(co, new, moving, radius=0.06 * length)
+        key = body.shape_key_add(name=f"fist_{side}", from_mix=False)
+        key.data.foreach_set("co", new.astype(np.float32).ravel())
+        key.value = 0.0  # open hands at rest
+        print(f"fist_{side}: {int(moving.sum())} points roll up")
+
     groups = {n: body.vertex_groups.new(name=n) for n in deform}
     for j, n in enumerate(deform):
         for vi in np.nonzero(W[:, j] > 1e-3)[0]:
@@ -331,6 +356,7 @@ def main():
                   for b in arm_data.bones],
         "parts": {"arms": int(is_arm.sum()), "hair": int(is_hair.sum()), "body": int(is_body.sum())},
         "hand_face": faces,
+        "shape_keys": {"fist_L": "left hand balled up (0 open .. 1 fist)", "fist_R": "right hand balled up"},
         # half-width of the bottom of the body: tilting on the base lifts it by about this x sin(tilt)
         "base_radius_m": round(float(np.percentile(np.abs(co[is_body & (co[:, 2] < 0.08 * height)][:, :2]
                                                           - np.array([cx, cy])), 95)), 3),

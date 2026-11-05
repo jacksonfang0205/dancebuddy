@@ -154,13 +154,19 @@ uv run python -m dancebuddy compose runs/my --systems copy
   the body as the arm rises and takes half of the arm's turn; each arm is ONE bendable bone (16-segment B-bone) that
   every arm point belongs to alone, so the arm bends as one curve and keeps its width and length (only the seam
   blends with the shoulder; the arms do not squash with the body). `blender/check_arm_width.py` measures the arm's
-  width along its length in sampled frames of a run. The hair has no bones of its own and moves with the head.
+  width along its length in sampled frames of a run. Each mitten can ball up into a fist: a shape key per hand
+  (`fist_L`, `fist_R`, `blender/fist.py`) that rolls the fingers up toward the back of the hand and rounds them off;
+  the mesh itself is unchanged. The hair has no bones of its own and moves with the head.
   Body weights are heat-diffusion weights computed on a closed voxel copy (generated meshes are open and in pieces)
   and copied back by position; parts are found from the base-colour texture (blue = arms, dark brown = hair).
 - **Retarget** (`dancebuddy/retarget.py`). Arm directions come from the picture (monocular depth is unreliable, so
   the 3D depth is damped), kept in front of the hair and the body; the shoulder socket slides up as the arm rises;
-  each arm bends as one even arc. The body takes the dancer's turn, side tilt and lean at full size, compressed
-  smoothly near the character's limits (never cut flat). Hair trails the body.
+  a small bend is one even arc, a big bend gathers in the middle like a soft elbow (a rounded L); hands ball up into
+  fists when the forearm is raised (fully when the arm is also bent) and open when the arm reaches out or drops.
+  The body takes the dancer's side tilt and lean, compressed smoothly near the character's limits (never cut flat),
+  and her turn all the way round: how far she has turned comes from how wide her shoulders look in the picture
+  (past side-on only when both shoulders are clearly seen swapped for a few frames; small wobbles near facing the
+  camera are ignored).
 - **Groove** (`retarget.py`). On top of the copied motion the soft body grooves on the beat: side sway, a twist a
   quarter beat later, an upper-body counter-bend and a small squash pulse, toned down during the dancer's big moves.
 - **Soft body** (`retarget.py`, SOFT). The body is a soft bag that keeps its volume: part of every sideways tilt is a
@@ -181,6 +187,8 @@ the dancer's moves are shown on the character, without writing keyframes:
 uv run python -m dancebuddy copy-agent runs/my --char assets/plush_soft      # -> runs/my/agent_copy
 uv run python -m dancebuddy render runs/my --systems agent_copy --char assets/plush_soft --engine cycles
 uv run python -m dancebuddy compose runs/my --systems copy agent_copy
+# re-apply a saved plan (e.g. after a rig change) without asking the LLM again:
+uv run python -m dancebuddy copy runs/my --char assets/plush_soft --plan runs/my/agent_copy/plan.json --name agent_copy_v2
 ```
 
 - **Plan** (`copy_plan.py`): per move unit, knobs for the body, arms, groove and head layers (head = the dancer's

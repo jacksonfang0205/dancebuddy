@@ -253,5 +253,9 @@
    0.5675
   ]
  },
+ "shape_keys": {
+  "fist_L": "left hand balled up (0 open .. 1 fist)",
+  "fist_R": "right hand balled up"
+ },
  "base_radius_m": 0.532
 }
