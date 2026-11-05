@@ -52,6 +52,8 @@ STYLE = {"straight_above_deg": 120,         # raised arms straighten out (refere
          "clear_from": 0.12,                # the arm from here to the hand stays out of the body...
          "clear_step_deg": 12.0,            # ...turned away from it at most this much at a time...
          "clear_steps": 12,                 # ...at most this many times...
+         "rest_match_to_deg": 110.0,        # the hanging-pose difference fades out by this arm raise (deg)
+         "clear_smooth_s": 0.08,            # the corrected arm is smoothed over this long
          "clear_tolerance": 0.005,          # ...until it sinks in less than this (body heights): plush gives
          "elbow_from_deg": 40.0,            # a bend this big counts as bent (for the fists)...
          "elbow_full_deg": 90.0,            # ...fully from here
@@ -103,7 +105,8 @@ def limb_dirs(kp: dict, w: np.ndarray, a: int, b: int, aspect: float) -> np.ndar
     scale = np.linalg.norm(np.c_[dx, dz], axis=1) / np.maximum(np.linalg.norm(v3[:, [0, 2]], axis=1), 1e-6)
     dy = v3[:, 1] * scale * ARM_DEPTH_GAIN
     d = np.c_[dx, dy, dz]
-    d = np.stack([smooth(d[:, k], 1.5) for k in range(3)], -1)
+    sig = 0.05 * float(kp.get("fps", 30.0))  # pose noise: smooth over ~50 ms whatever the frame rate
+    d = np.stack([smooth(d[:, k], sig) for k in range(3)], -1)
     return _norm(d)
 
 
@@ -113,15 +116,23 @@ def body_turn(kp: dict, T: np.ndarray) -> np.ndarray:
     How far: from how wide her shoulders look in the picture compared with facing the camera (monocular depth is
     not reliable enough to measure it); which way: from the 3D estimate (only its sign is needed). Past side-on
     (shoulders swapped in the picture) counts only when both shoulders are clearly seen for a few frames in a
-    row; otherwise the turn stops at side-on. Near facing the camera the width barely changes with the turn, so
+    row; otherwise the turn stops at side-on. The hips' width is a second reading (raised arms narrow the
+    shoulders). Near facing the camera the width barely changes with the turn, so
     small wobbles there (pose noise, arm swings) are not read as turns."""
     im, vis = kp["image"], kp.get("visibility")
     fps = float(kp.get("fps", 30.0))
     aspect = image_aspect(kp)
     sw = (im[:, L_SH, 0] - im[:, R_SH, 0]) * aspect
     torso = np.abs((im[:, L_HIP, 1] + im[:, R_HIP, 1] - im[:, L_SH, 1] - im[:, R_SH, 1]) / 2)
+    hw = (im[:, L_HIP, 0] - im[:, R_HIP, 0]) * aspect
     r = smooth(sw / np.maximum(torso, 1e-6), 0.06 * fps)
-    front = max(float(np.percentile(r, 90)), 1e-6)
+    rh = smooth(hw / np.maximum(torso, 1e-6), 0.06 * fps)
+    r = r / max(float(np.percentile(r, 90)), 1e-6)
+    rh = rh / max(float(np.percentile(rh, 90)), 1e-6)
+    # a raised arm lifts and pulls in its shoulder, so the shoulders look narrower than the turn: facing the
+    # camera, take whichever of shoulders and hips reads the smaller turn
+    r = np.where((r > 0) & (rh > 0), np.maximum(r, rh), r)
+    front = 1.0
     seen = np.ones(len(r), bool) if vis is None else (np.minimum(vis[:, L_SH], vis[:, R_SH]) >= 0.8)
     back = (r < 0) & seen
     run = np.zeros(len(r), bool)  # swapped and seen for at least 5 frames in a row
@@ -189,6 +200,16 @@ def keep_clear(u: np.ndarray, sign: int) -> np.ndarray:
     if sign * u[0] < 0.2:
         u[1] = min(u[1], -0.5)                   # arms crossing the body go in front of it
     return _norm(u)
+
+
+def match_rest(d: np.ndarray, rest_dir: np.ndarray) -> np.ndarray:
+    """The dancer's arm hangs straight down beside a slim body; the character's arm hangs out and forward around
+    its round body (its rest pose). Turn a direction by that difference, fully for a hanging arm and fading out
+    as the arm rises, so the dancer's swings start from the character's own hanging pose instead of from inside
+    its body."""
+    off = _align(_norm(np.asarray(rest_dir, float)), np.array([0.0, 0.0, -1.0])).as_rotvec()
+    k = float(np.clip(1 - raise_deg(_norm(d)) / STYLE["rest_match_to_deg"], 0, 1))
+    return Rot.from_rotvec(off * k * k * (3 - 2 * k)).apply(d)
 
 
 def raise_deg(u: np.ndarray) -> float:
@@ -467,6 +488,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         ch["body_lower.scale"] = [[round(float(b), 4), round(float(1 / b), 4), 1.0] for b in bulge]
 
     # ---- arms: copied in the torso frame (the body bones already carry the body rotation)
+    clear_report = {}
     for side_name, sign, (sh, el, wr) in (("L", 1, (L_SH, L_EL, L_WR)), ("R", -1, (R_SH, R_EL, R_WR))):
         name = f"arm_{side_name}_1"
         if name not in M:
@@ -483,12 +505,21 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         # near the seam the arm is sewn onto the body: only its centre must stay out there, the full thickness
         # from a third of the way out
         margin = radius * np.clip((ts - STYLE["clear_from"]) / (0.35 - STYLE["clear_from"]), 0, 1)
-        if shape is not None:  # the model's own pose is how close its arm sits to the body: that is not sinking in
+        if shape is not None:
+            # how close the arm sits to the body in the motion spec's own poses (hanging as modelled, out to the
+            # side, raised beside the face) is touching, not sinking in: the body shape is rough near the arm
             rest_dir = _norm(np.asarray(M[f"{name}__tail"], float) - np.asarray(M[f"{name}__head"], float))
-            info0 = {}
-            arm_pose(M, name, rest_dir, rest_dir, sign, info=info0)
-            d0, _ = body_depth(arm_centre_line(np.asarray(M[f"{name}__head"], float), info0, ts), shape, margin)
-            margin = margin - np.maximum(d0, 0.0)
+            excess = np.zeros(len(ts))
+            for d in (rest_dir, np.array([sign, 0.0, 0.0]), _norm(np.array([0.35 * sign, -0.2, 0.95]))):
+                c0 = socket_rot(M, [name], d, d, sign) if socket else Rot.identity()
+                off = socket_offset(d, sign, height) if socket else np.zeros(3)
+                info0 = {}
+                arm_pose(M, name, d, d, sign, parent=c0, info=info0)
+                p0 = np.asarray(M[f"{socket}__head"], float) if socket else np.zeros(3)
+                head0 = p0 + off + c0.apply(np.asarray(M[f"{name}__head"], float) - p0)
+                d0, _ = body_depth(arm_centre_line(head0, info0, ts), shape, margin)
+                excess = np.maximum(excess, d0)
+            margin = margin - excess
 
         def place_arm(u, f, scale, name=name, socket=socket, sign=sign, shape=shape, margin=margin, ts=ts):
             """Pose the arm; if any part of it sinks into the body, turn it (upper arm and forearm together,
@@ -522,14 +553,26 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
                                np.radians(1.0), np.radians(STYLE["clear_step_deg"]))
                 turn = Rot.from_rotvec(_norm(axis) * step)
                 u, f = turn.apply(u), turn.apply(f)
-            return c0, off, q, curve, chord
+            return c0, off, q, curve, chord, u, f
 
+        # the arms as the dancer moves them, then kept out of the body frame by frame; the corrected directions
+        # are smoothed over time so the arm glides around the body instead of jumping out and back between
+        # frames, and only what smoothing lets sink in again is corrected once more
+        rest_dir = _norm(np.asarray(M[f"{name}__tail"], float) - np.asarray(M[f"{name}__head"], float))
+        raw = [(match_rest(T[i].T @ upper[side_name][i], rest_dir),
+                match_rest(T[i].T @ fore[side_name][max(0, i - lag_f)], rest_dir)) for i in range(n)]
+        if shape is not None:
+            fixed = np.array([place_arm(u, f, float(knob["arms"][i]))[5:] for i, (u, f) in enumerate(raw)])
+            moved = np.degrees(np.arccos(np.clip((fixed[:, 0] * _norm(np.array([r[0] for r in raw]))).sum(1), -1, 1)))
+            clear_report[side_name] = {"frames_turned": round(float((moved > 1).mean()), 3),
+                                       "mean_deg": round(float(moved.mean()), 1),
+                                       "p90_deg": round(float(np.percentile(moved, 90)), 1)}
+            sig = STYLE["clear_smooth_s"] * fps
+            fixed = _norm(np.stack([np.stack([smooth(fixed[:, a, k], sig) for k in range(3)], -1)
+                                    for a in range(2)], 1))
+            raw = [(fixed[i, 0], fixed[i, 1]) for i in range(n)]
         for i in range(n):
-            Ti = T[i]
-            j = max(0, i - lag_f)
-            u = Ti.T @ upper[side_name][i]
-            f = Ti.T @ fore[side_name][j]  # forearm from a moment ago: the soft end trails
-            c0, off, q, curve, chord = place_arm(u, f, float(knob["arms"][i]))
+            c0, off, q, curve, chord, u, f = place_arm(*raw[i], float(knob["arms"][i]))
             if socket:
                 ch[f"{socket}.quat"].append(_local(M[socket], ident, c0))
                 ch[f"{socket}.loc"].append([round(float(x), 4) for x in M[socket].T @ off])  # -> bone rest frame
@@ -541,6 +584,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
             ch[f"{name}.fist"] = [round(float(x), 3) for x in np.clip(smooth(fist, 0.05 * fps), 0, 1)]
 
     return {"fps": fps, "n_frames": n, "character": rig.get("name", "character"), "channels": ch,
-            "retarget": {"body": BODY, "soft": SOFT, "style": STYLE, "groove": GROOVE},
+            "retarget": {"body": BODY, "soft": SOFT, "style": STYLE, "groove": GROOVE,
+                         "arms_turned_out_of_body": clear_report},
             "leg_events": [{k: (int(v) if isinstance(v, (int, np.integer)) else v) for k, v in ev.items()}
                            for ev in legs["events"]]}
