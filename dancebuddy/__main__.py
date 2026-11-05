@@ -166,6 +166,33 @@ def cmd_copy(a):
     print(f"copy: {curves['n_frames']} frames, {len(curves['channels'])} channels -> {out}")
 
 
+def cmd_render2d(a):
+    """The 2D puppet (render2d.py): the same motion as `copy` (optionally with a saved plan), drawn with the
+    character's 2D parts (blender/render_parts_2d.py) into <run>/<name>/frames."""
+    from .perception import load_keypoints
+    from .render2d import Parts, render
+    from .retarget import retarget
+    run_dir = Path(a.run)
+    rig = load(Path(str(a.char) + "_rig.json"))
+    score_p = run_dir / "dance_score.json"
+    score = load(score_p) if score_p.exists() else None
+    kp = load_keypoints(run_dir / "keypoints.npz")
+    motion: dict = {}
+    if a.plan:
+        from .signals import compute_signals
+        retarget(kp, rig, signals=compute_signals(kp), beats=score["beats"] if score else None,
+                 plan=load(Path(a.plan)), score=score, motion=motion)
+    else:
+        retarget(kp, rig, beats=score["beats"] if score else None, motion=motion)
+    step = max(1, int(round(motion["fps"] / a.fps))) if a.fps else 1
+    frames = run_dir / a.name / "frames"
+    if frames.exists():
+        shutil.rmtree(frames)
+    n = render(motion, Parts(a.parts), frames, step=step)
+    (frames / "render_info.json").write_text(json.dumps({"fps": motion["fps"] / step, "step": step, "engine": "2d"}))
+    print(f"render2d: {n} frames at {motion['fps'] / step:g} fps -> {frames}")
+
+
 def cmd_copy_agent(a):
     """The agent decides how the dancer's moves are shown on the character (copy_agent.py), then copies."""
     from .copy_agent import run_copy_agent
@@ -363,6 +390,10 @@ def main(argv=None):
     s = add("apply", cmd_apply, "run", "plan"); char_opt(s); s.add_argument("--name", default="handwritten")
     s = add("copy", cmd_copy, "run"); char_opt(s); s.add_argument("--name", default="copy")
     s.add_argument("--plan", help="a saved copy plan (e.g. runs/x/agent_copy/plan.json) to apply, no LLM")
+    s = add("render2d", cmd_render2d, "run"); char_opt(s); s.add_argument("--name", default="copy2d")
+    s.add_argument("--plan", help="a saved copy plan to apply (no LLM)")
+    s.add_argument("--parts", default="assets/plush_2d", help="2D parts from blender/render_parts_2d.py")
+    s.add_argument("--fps", type=float, default=30)
     s = add("copy-agent", cmd_copy_agent, "run"); char_opt(s); s.add_argument("--name", default="agent_copy")
     s.add_argument("--attempts", type=int, default=4); s.add_argument("--model")
     s = add("render", cmd_render, "run"); char_opt(s); render_opts(s)

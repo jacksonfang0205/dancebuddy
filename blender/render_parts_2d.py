@@ -2,7 +2,8 @@
 
 The 3D model is only the source of the art: each part is rendered on its own, with the same orthographic camera,
 from several views around the character, so the 2D puppet keeps the model's look and soft shading:
-  body_<yaw>.png        the body without arms and hair (the face is on it), holes where the arms were filled in
+  figure_<yaw>.png      body and hair without the arms (the face is on the body): they move together
+  body_<yaw>.png        the body alone, for its outline
   hair_back_<yaw>.png   all of the hair (drawn behind the body)
   hair_front_<yaw>.png  the hair that lies over the body in that view (drawn in front of it)
   arm_<L|R>.png, arm_<L|R>_fist.png
@@ -138,6 +139,8 @@ def main():
         for o in parts.values():
             o.matrix_world = turn
         bpy.context.view_layer.update()
+        show_only([parts["body"], parts["hair"]])
+        render(f"{os.path.abspath(a.out)}/figure_{yaw}.png")
         show_only([parts["body"]])
         render(f"{os.path.abspath(a.out)}/body_{yaw}.png")
         show_only([parts["hair"]])

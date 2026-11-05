@@ -399,8 +399,10 @@ def groove(n: int, fps: float, beats: list[int] | None, busy: np.ndarray) -> dic
 
 
 def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] | None = None,
-             plan: dict | None = None, score: dict | None = None) -> dict:
-    """plan: the agent's decisions (copy_plan.py); None = the plain copy. score: the dance score (move units)."""
+             plan: dict | None = None, score: dict | None = None, motion: dict | None = None) -> dict:
+    """plan: the agent's decisions (copy_plan.py); None = the plain copy. score: the dance score (move units).
+    motion: if given, filled with the same motion in rig-independent terms (body turn / tilt / bends / squash /
+    hop / slide, and each arm's arc), for the 2D puppet (render2d.py)."""
     from .copy_plan import emphasis_curves, knob_curves, leg_overrides
     fps = float(kp["fps"])
     w = to_blender(kp["world"])
@@ -479,6 +481,13 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         ch["root.loc"].append([round(float(legs["shift"][i] * knob["travel"][i] * height), 4),
                                round(float((legs["lift"][i] + emph["lift"][i]) * height + roll), 4), 0.0])
     ch["root.squash"] = [round(float(x), 4) for x in np.clip(legs["squash"] + gv["pulse"] + emph["squash"], -0.1, 0.25)]
+    if motion is not None:
+        upper_total = gv["bend"] + htilt + upper_bend_deg
+        motion.update(fps=fps, n=n, height_m=height, turn=np.asarray(turn, float).tolist(),
+                      tilt=np.asarray(side, float).tolist(), lower_bend=np.asarray(lower_bend, float).tolist(),
+                      upper_bend=np.asarray(upper_total, float).tolist(), lean=np.asarray(lean, float).tolist(),
+                      squash=ch["root.squash"], bulge=np.asarray(bulge, float).tolist(),
+                      lift_m=[c[1] for c in ch["root.loc"]], shift_m=[c[0] for c in ch["root.loc"]])
     if "body_upper" in M:
         ch["body_upper.quat"] = [_local(M["body_upper"], ident, upper_bend[i]) for i in range(n)]
     if "body_lower" in M:
@@ -553,7 +562,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
                                np.radians(1.0), np.radians(STYLE["clear_step_deg"]))
                 turn = Rot.from_rotvec(_norm(axis) * step)
                 u, f = turn.apply(u), turn.apply(f)
-            return c0, off, q, curve, chord, u, f
+            info["head"] = (p0 + off + c0.apply(np.asarray(M[f"{name}__head"], float) - p0)) if shape is not None \
+                else None
+            return c0, off, q, curve, chord, u, f, info
 
         # the arms as the dancer moves them, then kept out of the body frame by frame; the corrected directions
         # are smoothed over time so the arm glides around the body instead of jumping out and back between
@@ -562,7 +573,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         raw = [(match_rest(T[i].T @ upper[side_name][i], rest_dir),
                 match_rest(T[i].T @ fore[side_name][max(0, i - lag_f)], rest_dir)) for i in range(n)]
         if shape is not None:
-            fixed = np.array([place_arm(u, f, float(knob["arms"][i]))[5:] for i, (u, f) in enumerate(raw)])
+            fixed = np.array([place_arm(u, f, float(knob["arms"][i]))[5:7] for i, (u, f) in enumerate(raw)])
             moved = np.degrees(np.arccos(np.clip((fixed[:, 0] * _norm(np.array([r[0] for r in raw]))).sum(1), -1, 1)))
             clear_report[side_name] = {"frames_turned": round(float((moved > 1).mean()), 3),
                                        "mean_deg": round(float(moved.mean()), 1),
@@ -571,8 +582,14 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
             fixed = _norm(np.stack([np.stack([smooth(fixed[:, a, k], sig) for k in range(3)], -1)
                                     for a in range(2)], 1))
             raw = [(fixed[i, 0], fixed[i, 1]) for i in range(n)]
+        arcs = []
         for i in range(n):
-            c0, off, q, curve, chord, u, f = place_arm(*raw[i], float(knob["arms"][i]))
+            c0, off, q, curve, chord, u, f, info = place_arm(*raw[i], float(knob["arms"][i]))
+            p0 = np.asarray(M[f"{socket}__head"], float) if socket else np.zeros(3)
+            head = p0 + off + c0.apply(np.asarray(M[f"{name}__head"], float) - p0)
+            arcs.append({"head_shift": (head - np.asarray(M[f"{name}__head"], float)).tolist(),
+                         "chord": np.asarray(info["chord"]).tolist(), "theta": float(info["theta"]),
+                         "bulge": np.asarray(info["bulge"]).tolist(), "length": float(info["length"])})
             if socket:
                 ch[f"{socket}.quat"].append(_local(M[socket], ident, c0))
                 ch[f"{socket}.loc"].append([round(float(x), 4) for x in M[socket].T @ off])  # -> bone rest frame
@@ -582,6 +599,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
             fist[i] = fist_amount(u, f)
         if f"fist_{side_name}" in rig.get("shape_keys", {}):
             ch[f"{name}.fist"] = [round(float(x), 3) for x in np.clip(smooth(fist, 0.05 * fps), 0, 1)]
+        if motion is not None:
+            motion[f"arm_{side_name}"] = arcs
+            motion[f"fist_{side_name}"] = np.clip(smooth(fist, 0.05 * fps), 0, 1).tolist()
 
     return {"fps": fps, "n_frames": n, "character": rig.get("name", "character"), "channels": ch,
             "retarget": {"body": BODY, "soft": SOFT, "style": STYLE, "groove": GROOVE,
