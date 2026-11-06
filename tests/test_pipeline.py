@@ -333,10 +333,10 @@ def test_command_line_options():
     out = help_of("dancebuddy", "agent")
     assert all(o in out for o in ("--attempts", "--looks", "--no-looks", "--no-geometry", "--no-moves"))
     out = help_of("dancebuddy")
-    assert all(c in out for c in ("perceive", "agent", "replay", "render", "compose", "demo", "character"))
+    assert all(c in out for c in ("check", "perceive", "agent", "replay", "render", "compose", "demo", "character"))
     assert all(c in help_of("dancebuddy", "character") for c in ("model", "rig", "capsule", "puppet", "card"))
     out = help_of("evaluation")
-    assert all(c in out for c in ("prepare", "run", "metrics", "render", "apply"))
+    assert all(c in out for c in ("prepare", "run", "metrics", "render", "apply", "export"))
     assert all(s in help_of("evaluation", "run") for s in ("pose_copy", "plain_copy", "planner", "agent_no_looks"))
 
 

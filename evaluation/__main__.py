@@ -5,6 +5,7 @@
   python -m evaluation metrics                         # measure every system's motion, write the results table
   python -m evaluation render  --dance ID --systems plain_copy agent     # optional: a side-by-side video
   python -m evaluation apply   PLAN.json --dance synth                    # the planner baseline with a hand-written plan
+  python -m evaluation export  --name paper            # copy the runs (no videos, no frames) into evaluation/results/paper
 
 Runs go to runs/<dance id>/<system>/ (runs/ is not committed); results to evaluation/results/results.{json,md}.
 """
@@ -150,6 +151,37 @@ def cmd_apply(a):
     print(f"{a.name}: passed={res['passed']} -> {out}")
 
 
+KEEP = ("curves.json", "plan.json", "checks.json", "summary.json", "trace.json", "measure.json", "arm_shape.json")
+
+
+def cmd_export(a):
+    """Copy what the results are computed from into the repository: per dance its keypoints and dance score, per
+    system its curves, plan, checks, summary, trace and measurements. No videos, no rendered frames. Anyone can then
+    recompute the exact table with `metrics --runs evaluation/results/<name>/runs` (no API key, no video)."""
+    import shutil
+    dest = RESULTS / a.name / "runs"
+    for d in dances(a.dance):
+        src = run_dir(a.runs, d)
+        if not (src / "dance_score.json").exists():
+            continue
+        (dest / d["id"]).mkdir(parents=True, exist_ok=True)
+        for f in ("keypoints.npz", "dance_score.json"):
+            shutil.copy2(src / f, dest / d["id"] / f)
+        for sd in sorted(p for p in src.iterdir() if (p / "curves.json").exists()):
+            out = dest / d["id"] / sd.name
+            out.mkdir(parents=True, exist_ok=True)
+            for f in KEEP:
+                if (sd / f).exists():
+                    shutil.copy2(sd / f, out / f)
+        print(f"{d['id']}: exported -> {dest / d['id']}")
+    res = RESULTS / "results.json"
+    if res.exists():
+        for f in (res, res.with_suffix(".md")):
+            shutil.copy2(f, RESULTS / a.name / f.name)
+    print(f"recompute with: python -m evaluation metrics --runs {dest.relative_to(ROOT)} --out "
+          f"{(RESULTS / a.name / 'results.json').relative_to(ROOT)}")
+
+
 def main(argv=None):
     from evaluation.baselines import SYSTEMS
     p = argparse.ArgumentParser(prog="evaluation", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -175,6 +207,8 @@ def main(argv=None):
     s.add_argument("--runs", type=Path, default=ROOT / "runs"); s.add_argument("--char")
     s.add_argument("--dance", required=True); s.add_argument("--systems", nargs="+", required=True)
     s.add_argument("--engine", default="cycles"); s.add_argument("--preview", action="store_true")
+    s = sub.add_parser("export"); s.set_defaults(fn=cmd_export); common(s)
+    s.add_argument("--name", default="paper", help="evaluation/results/<name>/ (default paper)")
     s = sub.add_parser("apply"); s.set_defaults(fn=cmd_apply)
     s.add_argument("plan"); s.add_argument("--runs", type=Path, default=ROOT / "runs"); s.add_argument("--char")
     s.add_argument("--dance", default="synth"); s.add_argument("--name", default="planner_handwritten")
