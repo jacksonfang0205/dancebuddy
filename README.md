@@ -123,8 +123,8 @@ One agent run is about 15-25 calls and about 0.3 USD; exact costs go to `.cache/
 - The accent check is fragile (any jitter counts as a hit); the vision review is the better judge of "does it
   read", but it is a model's opinion.
 - The in-frame check covers the body only; wide reaches can push a hand out of the picture.
-- Not in the MVP: the agent's memory across runs (in history, commit 37d1617), a 2D puppet from 3D renders
-  (branch `two-d`), a pose library from the reference clips.
+- Not in the MVP: the agent's memory across runs (in history, commit 37d1617), a pose library from the reference
+  clips.
 
 ## Repository layout
 
