@@ -48,34 +48,48 @@ uv run pytest
 
 The tests use synthetic data and mocked model responses. They cover the planner baseline, retargeting, tool behavior, motion-language parsing, CLI options, and evaluation metrics.
 
-## 2. Quick start (synthetic dancer, no video needed)
+## 2. Run a dance
+
+The bundled default character is `assets/plush_soft`. Use a fresh run directory for each source video, because perception reuses cached keypoints in an existing directory.
 
 ```bash
-uv run python -m evaluation prepare                       # runs/synth: a 12 s synthetic dance + perception
-uv run python -m dancebuddy agent   runs/synth            # ~3 min
-uv run python -m dancebuddy render  runs/synth --preview
-uv run python -m dancebuddy compose runs/synth --preview  # -> runs/synth/side_by_side_preview.mp4
+uv run python -m dancebuddy perceive path/to/dance.mp4 runs/my_dance
+uv run python -m dancebuddy agent runs/my_dance --attempts 4 --looks 4
+uv run python -m dancebuddy render runs/my_dance --preview
+uv run python -m dancebuddy compose runs/my_dance --preview
 ```
 
-Without a key: `uv run python -m evaluation run --no-llm && uv run python -m evaluation metrics`.
+The preview uses Workbench at half the requested dimensions. Its side-by-side video is saved to `runs/my_dance/side_by_side_preview.mp4`.
 
-The agent writes `runs/synth/agent/`: `summary.json`, `trace.json` (all messages and tool calls), the best
-`plan.json` / `curves.json` / `checks.json`, and one `attempt_N/` per plan with its rendered looks.
-
-## 3. Run on your own video
-
-One person, whole body in view, front view, 10–30 s.
+For a textured render:
 
 ```bash
-uv run python -m dancebuddy demo my_dance.mp4 runs/my     # = perceive, agent, render, compose -> runs/my/side_by_side.mp4
+uv run python -m dancebuddy render runs/my_dance --engine eevee
+uv run python -m dancebuddy compose runs/my_dance
 ```
 
-Each step also runs on its own (`perceive`, `agent`, `render`, `compose`). Options: `--preview` for a quick
-untextured render; `agent --attempts N --looks N`, `--no-looks`, `--no-geometry`, `--no-moves`;
-`replay runs/my <plan.json> --name again` re-executes a saved plan without the LLM; `--char assets/<name>` picks
-another rigged character (default `assets/plush_soft`).
+The final video is saved to `runs/my_dance/side_by_side.mp4`. Rendering defaults to Cycles and a target of 30 fps. Frame-rate reduction uses an integer sampling step based on the source rate.
 
-## 4. Reproduce the evaluation
+The full workflow is also available as one command:
+
+```bash
+uv run python -m dancebuddy demo path/to/dance.mp4 runs/another_dance --preview
+```
+
+### Inspect and replay a run
+
+The agent writes to `runs/my_dance/agent/`: `summary.json` (attempts, whether its checks passed, LLM calls, cost), `trace.json` (every message and tool call), the best `plan.json`, `curves.json` and `checks.json`, and one `attempt_N/` folder per submitted plan with its rendered looks (`look_N/look.png`).
+
+Carry out a saved plan again without the LLM:
+
+```bash
+uv run python -m dancebuddy replay runs/my_dance runs/my_dance/agent/plan.json --name replay
+uv run python -m dancebuddy render runs/my_dance --systems replay --preview
+```
+
+`agent --no-looks`, `--no-geometry` and `--no-moves` switch a capability off; `--name` sets the output folder and `--char assets/<name>` another rigged character.
+
+## 3. Reproduce the evaluation
 
 Systems: `pose_copy`, `plain_copy`, `planner` (baselines), `agent`, `agent_no_looks`, `agent_no_moves`,
 `agent_numbers` (ablations).
