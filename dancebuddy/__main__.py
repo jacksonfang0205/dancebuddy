@@ -166,6 +166,11 @@ def cmd_copy(a):
     print(f"copy: {curves['n_frames']} frames, {len(curves['channels'])} channels -> {out}")
 
 
+def memory_path_for(char):
+    from .memory import path_for
+    return path_for(char)
+
+
 def cmd_copy_agent(a):
     """The agent decides how the dancer's moves are shown on the character (copy_agent.py), then copies."""
     from .copy_agent import run_copy_agent
@@ -179,7 +184,24 @@ def cmd_copy_agent(a):
     blend = str(a.char) + ".blend"
     run_copy_agent(load_keypoints(run_dir / "keypoints.npz"), score, rig, spec, run_dir / a.name,
                    max_attempts=a.attempts, model=a.model, blend=blend if Path(blend).exists() else None,
-                   source=source if source and Path(source).exists() else None, max_looks=a.looks)
+                   source=source if source and Path(source).exists() else None, max_looks=a.looks,
+                   memory_path=None if a.no_memory else memory_path_for(a.char))
+
+
+def cmd_memory(a):
+    """Show the agent's memory of a character; approve or reject its proposed spec changes."""
+    from . import memory as m
+    p = m.path_for(a.char)
+    mem = m.load(p)
+    if a.approve is not None or a.reject is not None:
+        spec_path = Path(str(a.char).split("_")[0] + "_motion_spec.json")
+        i = a.approve if a.approve is not None else a.reject
+        print(f"proposal {i}:", m.decide(mem, spec_path, i, a.approve is not None))
+        m.save(p, mem)
+    print(json.dumps(m.view(mem), indent=1, ensure_ascii=False))
+    pending = [x for x in mem["proposals"] if x["status"] == "pending"]
+    for i, x in enumerate(pending):
+        print(f"[{i}] {x['change']}  -- why: {x['why']}  (run {x['run']})")
 
 
 def cmd_apply(a):
@@ -369,6 +391,10 @@ def main(argv=None):
     s.add_argument("--plan", help="a saved copy plan (e.g. runs/x/agent_copy/plan.json) to apply, no LLM")
     s = add("copy-agent", cmd_copy_agent, "run"); char_opt(s); s.add_argument("--name", default="agent_copy")
     s.add_argument("--looks", type=int, default=4, help="how many times the agent may look at rendered frames")
+    s.add_argument("--no-memory", action="store_true", help="ablation: run without the agent's memory")
+    s = add("memory", cmd_memory); char_opt(s)
+    s.add_argument("--approve", type=int, help="approve pending spec proposal N (adds it to the spec's learned rules)")
+    s.add_argument("--reject", type=int, help="reject pending spec proposal N")
     s.add_argument("--attempts", type=int, default=4); s.add_argument("--model")
     s = add("render", cmd_render, "run"); char_opt(s); render_opts(s)
     s.add_argument("--systems", nargs="+", default=["agent", "posecopy"]); s.add_argument("--max-frames", type=int, default=0)

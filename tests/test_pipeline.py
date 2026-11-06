@@ -320,3 +320,19 @@ def test_moves_parse_safely_and_take_over_the_arm():
     assert c["arm"]["L"]["u"][30][2] > 0.9                      # overhead: straight up
     assert c["arm"]["L"]["fist"][30] == 1.0
     assert abs(c["body"]["tilt"][60] + 10) < 1e-6 and c["emphasis"][0]["frame"] == 30
+
+
+def test_memory_keeps_lessons_and_spec_changes_need_approval(tmp_path):
+    from dancebuddy import memory as m
+    spec = tmp_path / "x_motion_spec.json"
+    spec.write_text(json.dumps({"character": "x"}))
+    mem = m.load(tmp_path / "x_memory.json")
+    m.remember(mem, [{"kind": "works", "text": "Pose overhead for raised accents"}, {"kind": "bogus", "text": "?"}],
+               {"change": "raised hands reach above the head", "why": "seen in looks"}, "run1")
+    m.remember(mem, [{"kind": "works", "text": "pose overhead for raised accents"}], None, "run2")
+    assert len(mem["lessons"]) == 1 and mem["lessons"][0]["count"] == 2
+    assert "learned" not in json.loads(spec.read_text())          # nothing reaches the spec by itself
+    assert m.view(mem)["pending_spec_proposals"] == ["raised hands reach above the head"]
+    m.decide(mem, spec, 0, approve=True)
+    assert json.loads(spec.read_text())["learned"] == ["raised hands reach above the head"]
+    assert m.view(mem)["pending_spec_proposals"] == []
