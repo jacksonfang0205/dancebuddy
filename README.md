@@ -50,10 +50,23 @@ The tests use synthetic data and mocked model responses. They cover the planner 
 
 ## 2. Run a dance
 
-The bundled default character is `assets/plush_soft`. Use a fresh run directory for each source video, because perception reuses cached keypoints in an existing directory.
+The bundled default character is `assets/plush_soft`. A run starts from either your own dance video or the built-in synthetic dancer.
+
+**With your own video.** Use a video of one person with the whole body in view, filmed from the front, 10–30 seconds long. Use a fresh run directory for each source video, because perception reuses cached keypoints in an existing directory.
 
 ```bash
 uv run python -m dancebuddy perceive path/to/dance.mp4 runs/my_dance
+```
+
+**Without a video.** The repository generates a 12-second synthetic dance and its perception in `runs/synth`. Use `runs/synth` in place of `runs/my_dance` in the commands below.
+
+```bash
+uv run python -m evaluation prepare --dance synth
+```
+
+Then run the agent and preview the result:
+
+```bash
 uv run python -m dancebuddy agent runs/my_dance --attempts 4 --looks 4
 uv run python -m dancebuddy render runs/my_dance --preview
 uv run python -m dancebuddy compose runs/my_dance --preview
