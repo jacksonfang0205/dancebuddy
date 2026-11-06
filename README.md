@@ -150,7 +150,7 @@ evaluation/                 data, baselines, metrics (python -m evaluation)
   data/        dances.json characters.json synth.py
   baselines/   __init__.py (the systems) pose_copy.py planner/ (agent.py primitives.py checks.py examples/)
   metrics/     __init__.py (rhythm, fidelity, integrity, cost) pixels.py
-  results/     results.{json,md}; v1/ from the first prototype
+  results/     results.{json,md}; v1/: the first prototype's results and example runs
 blender/                    Blender scripts
   make_model.py rig_soft.py fist.py make_capsule.py make_puppet.py      characters
   render_curves.py pose_utils.py scene_utils.py                          rendering

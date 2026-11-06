@@ -6,7 +6,7 @@
   python -m evaluation render  --dance ID --systems plain_copy agent     # optional: a side-by-side video
   python -m evaluation apply   PLAN.json --dance synth                    # the planner baseline with a hand-written plan
 
-Runs go to runs/<dance id>/<system>/ (not committed); results to evaluation/results/results.{json,md}.
+Runs go to runs/<dance id>/<system>/ (runs/ is not committed); results to evaluation/results/results.{json,md}.
 """
 
 from __future__ import annotations
