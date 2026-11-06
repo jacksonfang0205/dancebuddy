@@ -4,7 +4,9 @@ The model reads the dance (move units, accents, the dancer's signals incl. head 
 the character's motion spec, and submits a copy plan (copy_plan.py): per unit how strongly to use the body, arms,
 groove and head layers, how to translate each leg event, and which accents get an extra emphasis move. Each plan
 is run through the deterministic copy (retarget.py) and checked (copy_checks.py); the model revises from the
-per-unit report. The best attempt is kept. Rendering is a separate step (`render ... --systems agent_copy`).
+per-unit report. Beyond the numbers it can check the arms' geometry on the posed character and look at a few
+rendered frames next to the dancer (inspect_tools.py), choosing what to check and where. The best attempt is kept.
+Rendering the whole dance is a separate step (`render ... --systems agent_copy`).
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from jsonschema import Draft202012Validator
 from . import llm
 from .copy_checks import rank, run_copy_checks
 from .copy_plan import EMPHASIS_MOVES, KNOBS, PLAN_SCHEMA, default_plan
+from .inspect_tools import check_arm_geometry, look_at_frames, pick_frames
 from .retarget import retarget
 
 SYSTEM = """You are DanceBuddy, an animation agent. A non-humanoid plush character copies a human dancer. A
@@ -38,7 +41,16 @@ How to work:
 4. submit_copy_plan. It returns checks per unit: missed accents, completeness (does the character move about
    as much as the dancer, relatively), frames out of the picture, range. Fix what the report points at and keep
    what works. Do not change units that pass unless you have a reason.
-5. When all checks pass, or you are out of attempts, reply with a short summary of your decisions and stop."""
+5. The numbers do not show what the character looks like. Check the latest attempt where it matters, cheapest
+   first, and decide yourself where to look:
+   - check_arm_geometry (a few seconds): arms folding or sinking into the body, on chosen frames or a unit
+   - look_at_frames (about half a minute; limited number of looks): renders chosen frames small next to the
+     dancer and returns a reviewer's notes per frame: does the character show the move, what looks wrong, a fix.
+     Look at units with big arm moves, turns or accents, and at units the checks flagged.
+   Turn what you learn into knob changes (arms, body, emphasis) and submit again; note that some problems (e.g. an
+   arm shape) may not be fixable with the knobs: say so in your summary instead of chasing them.
+6. When the checks pass and what you looked at is fine, or you are out of attempts, reply with a short summary of
+   your decisions, what you checked and what is still wrong, and stop."""
 
 TOOLS = [
     llm.tool_spec("get_dance_score", "Move units (time, label, which body regions move), accents and beats, as frames and seconds.",
@@ -53,6 +65,17 @@ TOOLS = [
                   {"type": "object", "properties": {}}),
     llm.tool_spec("submit_copy_plan", "Submit a copy plan. It is run through the copy and checked; returns the checks per unit.",
                   PLAN_SCHEMA),
+    llm.tool_spec("check_arm_geometry", "Check the arms on the posed character (no rendering, a few seconds): where an "
+                  "arm folds or sinks into the body. On the latest attempt unless `attempt` is given; on `frames` "
+                  "(at most 24) or on a unit's key frames.",
+                  {"type": "object", "properties": {"attempt": {"type": "integer"}, "unit_id": {"type": "integer"},
+                                                    "frames": {"type": "array", "items": {"type": "integer"}}}}),
+    llm.tool_spec("look_at_frames", "Render up to 8 frames of an attempt small, next to the dancer at the same "
+                  "moments, and get a reviewer's notes per frame (copy 0-2, problems, a fix). About half a minute; "
+                  "limited number of looks per run. On the latest attempt unless `attempt` is given; on `frames` or on "
+                  "a unit's accents and beats.",
+                  {"type": "object", "properties": {"attempt": {"type": "integer"}, "unit_id": {"type": "integer"},
+                                                    "frames": {"type": "array", "items": {"type": "integer"}}}}),
 ]
 
 
@@ -70,7 +93,10 @@ LEG_DEFAULTS = {"jump": "squash to wind up, stretch and hop, squash on landing",
 
 
 def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | Path, max_attempts: int = 4,
-                   max_turns: int = 16, model: str | None = None) -> dict:
+                   max_turns: int = 24, model: str | None = None, blend: str | None = None,
+                   source: str | None = None, max_looks: int = 4) -> dict:
+    """blend: the rigged character (for the geometry check and the looks); source: the dance video (for the
+    looks). Without them the agent only has the numeric checks."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     validator = Draft202012Validator(PLAN_SCHEMA)
@@ -81,6 +107,7 @@ def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | 
     events = base["leg_events"]
     spec_view = {k: v for k, v in spec.items() if k not in ("physics", "rig")}
     attempts: list[dict] = []
+    looks: list[dict] = []
 
     def tool(name: str, args: dict) -> str:
         if name == "get_dance_score":
@@ -119,6 +146,30 @@ def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | 
                   + " ".join(f"{n}={'ok' if c['passed'] else 'FAIL'}" for n, c in res["checks"].items()))
             view = {kk: v for kk, v in res.items() if kk != "all_units"}
             return json.dumps({"attempt": k, "attempts_left": max_attempts - k, **view})
+        if name in ("check_arm_geometry", "look_at_frames"):
+            if not attempts:
+                return json.dumps({"error": "submit a plan first"})
+            if not blend or (name == "look_at_frames" and not source):
+                return json.dumps({"error": "this check is not available in this run"})
+            k = int(args.get("attempt") or len(attempts))
+            att = next((x for x in attempts if x["attempt"] == k), attempts[-1])
+            n = len(kp["image"])
+            work = Path(att["dir"]) / ("geometry" if name == "check_arm_geometry" else f"look_{len(looks) + 1}")
+            if name == "check_arm_geometry":
+                frames = pick_frames(score, n, args.get("frames"), args.get("unit_id"), most=24)
+                if not args.get("frames") and args.get("unit_id") is None:
+                    frames = list(range(0, n, max(1, n // 24)))[:24]
+                res = check_arm_geometry(Path(att["dir"]) / "curves.json", blend, score, frames, work)
+                print(f"  geometry on attempt {att['attempt']}: {len(res['problems'])} problems in {len(frames)} frames")
+                return json.dumps({"attempt": att["attempt"], **res})
+            if len(looks) >= max_looks:
+                return json.dumps({"error": "no looks left; decide from what you have"})
+            frames = pick_frames(score, n, args.get("frames"), args.get("unit_id"), most=8)
+            res = look_at_frames(Path(att["dir"]) / "curves.json", blend, score, spec, source, frames, work, model)
+            looks.append({"attempt": att["attempt"], **res})
+            print(f"  look {len(looks)} at attempt {att['attempt']}, frames {frames}")
+            return json.dumps({"attempt": att["attempt"], "looks_left": max_looks - len(looks), "frames": frames,
+                               "notes": res["notes"]})
         return json.dumps({"error": f"unknown tool {name}"})
 
     messages = [{"role": "system", "content": SYSTEM},
@@ -151,6 +202,7 @@ def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | 
     summary = {"attempts": len(attempts), "best_attempt": best["attempt"], "passed": best["result"]["passed"],
                "history": [{"attempt": x["attempt"], "passed": x["result"]["passed"],
                             "problems": sum(len(u["problems"]) for u in x["result"]["units"])} for x in attempts],
+               "looks": [{"attempt": x["attempt"], "frames": x["frames"], "picture": x["picture"]} for x in looks],
                "final_message": final_text, "model": model or llm.DEFAULT_MODEL}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     print(f"agent: {len(attempts)} attempt(s), best = {best['attempt']}, passed = {best['result']['passed']}")

@@ -174,8 +174,12 @@ def cmd_copy_agent(a):
     rig = load(Path(str(a.char) + "_rig.json"))
     spec_path = Path(str(a.char).split("_")[0] + "_motion_spec.json")
     spec = load(spec_path) if spec_path.exists() else {}
-    run_copy_agent(load_keypoints(run_dir / "keypoints.npz"), load(run_dir / "dance_score.json"), rig, spec,
-                   run_dir / a.name, max_attempts=a.attempts, model=a.model)
+    score = load(run_dir / "dance_score.json")
+    source = (run_dir / "source.txt").read_text().strip() if (run_dir / "source.txt").exists() else score.get("source")
+    blend = str(a.char) + ".blend"
+    run_copy_agent(load_keypoints(run_dir / "keypoints.npz"), score, rig, spec, run_dir / a.name,
+                   max_attempts=a.attempts, model=a.model, blend=blend if Path(blend).exists() else None,
+                   source=source if source and Path(source).exists() else None, max_looks=a.looks)
 
 
 def cmd_apply(a):
@@ -364,6 +368,7 @@ def main(argv=None):
     s = add("copy", cmd_copy, "run"); char_opt(s); s.add_argument("--name", default="copy")
     s.add_argument("--plan", help="a saved copy plan (e.g. runs/x/agent_copy/plan.json) to apply, no LLM")
     s = add("copy-agent", cmd_copy_agent, "run"); char_opt(s); s.add_argument("--name", default="agent_copy")
+    s.add_argument("--looks", type=int, default=4, help="how many times the agent may look at rendered frames")
     s.add_argument("--attempts", type=int, default=4); s.add_argument("--model")
     s = add("render", cmd_render, "run"); char_opt(s); render_opts(s)
     s.add_argument("--systems", nargs="+", default=["agent", "posecopy"]); s.add_argument("--max-frames", type=int, default=0)

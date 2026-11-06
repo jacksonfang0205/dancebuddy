@@ -295,3 +295,12 @@ def test_soft_arm_is_a_round_arc_that_keeps_its_length():
     assert turn.max() - turn.min() < 0.2          # the same curvature all along
     assert abs(np.linalg.norm(pts[-1]) - 0.5 * chord) < 1e-3
     assert Rot.from_quat(np.r_[q[1:], q[:1]]).magnitude() > 0.1
+
+
+def test_inspect_picks_a_units_key_frames():
+    from dancebuddy.inspect_tools import pick_frames
+    score = {"units": [{"id": 0, "start": 0, "end": 40, "accents": [10], "beats": [5, 15, 25, 35]},
+                       {"id": 1, "start": 41, "end": 90, "accents": [60, 70], "beats": [45, 55, 65, 75, 85]}]}
+    f = pick_frames(score, 91, unit_id=1)
+    assert f[0] == 41 and f[-1] == 90 and 60 in f and 70 in f and len(f) <= 8
+    assert pick_frames(score, 91, frames=[5, 200, 5, 3]) == [3, 5]
