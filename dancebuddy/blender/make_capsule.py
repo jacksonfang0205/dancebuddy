@@ -2,8 +2,8 @@
 no legs, no neck, rigged with a 4-bone chain (root -> lower -> upper -> top).
 
 Run with either:
-  blender -b -P blender/make_capsule.py -- --out assets/capsule
-  python blender/make_capsule.py --out assets/capsule        (if the bpy module is installed)
+  blender -b -P dancebuddy/blender/make_capsule.py -- --out assets/capsule
+  python dancebuddy/blender/make_capsule.py --out assets/capsule        (if the bpy module is installed)
 
 Writes <out>.blend, <out>_rig.json (bones for the character card) and
 <out>_views/{front,side,three_quarter,back}.png for the VLM.

@@ -4,7 +4,7 @@ For sampled frames of a curves.json, pose the rig, and measure each arm's thickn
 points are sliced along the rest arm, and each slice's spread (RMS distance to the slice centre) is compared
 with the rest pose. Prints the worst change per frame and an overall verdict.
 
-  python blender/check_arm_width.py -- --blend assets/plush_soft.blend --curves runs/x/copy/curves.json
+  python dancebuddy/blender/check_arm_width.py -- --blend assets/plush_soft.blend --curves runs/x/copy/curves.json
 """
 
 import argparse

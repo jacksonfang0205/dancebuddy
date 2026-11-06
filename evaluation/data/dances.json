@@ -1,6 +1,11 @@
 {
- "about": "Dance videos for the evaluation. Videos are not committed: put them anywhere and list them here (path relative to the repository, or absolute). `python -m evaluation prepare` runs perception on each into runs/<id>/. The id 'synth' is a built-in synthetic dancer (no video needed).",
+ "about": "Dance videos for the evaluation. Videos are not committed. For each dance: `id`, `video` (the path where the video is expected, relative to the repository or absolute), `source` (where to get it: a link, or who filmed it), `notes`. `python -m evaluation prepare` runs perception on each into runs/<id>/. The id 'synth' is a built-in synthetic dancer (no video needed).",
  "dances": [
-  {"id": "synth", "video": "synth", "notes": "synthetic dancer, 22 accents, 6 units; for smoke tests"}
+  {
+   "id": "synth",
+   "video": "synth",
+   "source": "built in (evaluation/data/synth.py)",
+   "notes": "synthetic dancer, 12 s, 22 accents, 6 units; for smoke tests"
+  }
  ]
 }

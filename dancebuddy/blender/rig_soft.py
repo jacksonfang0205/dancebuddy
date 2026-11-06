@@ -7,7 +7,7 @@ The rig follows the character's motion spec (assets/<name>_motion_spec.json), wh
   * arms      : arm_X_1, one bendable bone (16-segment B-bone) per arm: it bends as one smooth curve and keeps its
                 width and length (no elbow, no blending between bones along the arm)
   * hands     : each mitten can ball up into a fist: a shape key (fist_L / fist_R) the hand blends into, made by
-                rolling the fingers up toward the back of the hand (blender/fist.py)
+                rolling the fingers up toward the back of the hand (dancebuddy/blender/fist.py)
   * hair      : no bones of its own; it moves with the head (not animated separately)
 
 The mesh is never edited. Parts are found from the base-colour texture (arms = blue, hair = dark brown). Weights
@@ -15,7 +15,7 @@ come from Blender's heat diffusion ("automatic weights") computed on a closed vo
 meshes are open and in many pieces, which heat weighting cannot handle) and copied back to every vertex by
 position, so the original surface deforms smoothly and seams stay closed.
 
-  python blender/rig_soft.py -- --blend assets/plush.blend --out assets/plush_soft
+  python dancebuddy/blender/rig_soft.py -- --blend assets/plush.blend --out assets/plush_soft
 """
 
 import argparse

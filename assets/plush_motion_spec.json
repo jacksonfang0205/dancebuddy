@@ -129,8 +129,8 @@
   "hands": "copy open or closed from the dancer's hand when it can be seen; otherwise fists for raised, bent arms and open hands for reaching"
  },
  "rig": {
-  "file": "plush_soft.blend, made by blender/rig_soft.py from plush.blend (the mesh is not edited)",
-  "how": "designed from the connections above; the mesh is not edited. Root at the base of the body; a hidden shoulder bone per arm (pivot just inside the seam) slides the seam up the body as the arm rises and takes half of the arm's turn; each arm is ONE 16-segment bendable bone (B-bone) with every arm point on it alone, so it bends as a curve and keeps its width (blender/check_arm_width.py checks this); only the seam blends with the shoulder; each mitten has a fist shape key (fist_L, fist_R) it blends into; hair has no bones and moves with the head. Body weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
+  "file": "plush_soft.blend, made by dancebuddy/blender/rig_soft.py from plush.blend (the mesh is not edited)",
+  "how": "designed from the connections above; the mesh is not edited. Root at the base of the body; a hidden shoulder bone per arm (pivot just inside the seam) slides the seam up the body as the arm rises and takes half of the arm's turn; each arm is ONE 16-segment bendable bone (B-bone) with every arm point on it alone, so it bends as a curve and keeps its width (dancebuddy/blender/check_arm_width.py checks this); only the seam blends with the shoulder; each mitten has a fist shape key (fist_L, fist_R) it blends into; hair has no bones and moves with the head. Body weights are heat-diffusion weights from a closed voxel copy, copied back by position.",
   "driven_by": "dancebuddy/retarget.py"
  },
  "known_gaps": [

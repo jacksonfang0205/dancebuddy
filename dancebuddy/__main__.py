@@ -1,5 +1,7 @@
 """DanceBuddy: an agent that makes a non-humanoid character dance along with a human dancer.
 
+  python -m dancebuddy check                          # is everything installed and configured?
+
 Per dance:
   python -m dancebuddy perceive VIDEO runs/my          # perception: pose -> keypoints + dance score
   python -m dancebuddy agent    runs/my                # the agent: read, plan, act, check, look, revise
@@ -29,6 +31,43 @@ from dancebuddy.knowledge import character
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CHAR = ROOT / "assets" / "plush_soft"
+
+
+# ------------------------------------------------------------------ set-up check
+
+def cmd_check(a):
+    """Check what the project needs: Python packages, Blender, ffmpeg, the characters, the OpenRouter key."""
+    import importlib.util
+    import os
+    import shutil
+    ok = True
+
+    def line(good, what, fix=""):
+        nonlocal ok
+        ok &= bool(good)
+        print(("  ok   " if good else "  MISSING ") + what + ("" if good or not fix else f"\n         -> {fix}"))
+
+    print("DanceBuddy set-up check")
+    for mod in ("numpy", "scipy", "cv2", "mediapipe", "openai", "jsonschema"):
+        line(importlib.util.find_spec(mod) is not None, f"python package {mod}", "run: uv sync --extra render")
+    bpy = importlib.util.find_spec("bpy") is not None
+    line(bpy or os.environ.get("BLENDER") or shutil.which("blender"),
+         "Blender (" + ("bpy module" if bpy else os.environ.get("BLENDER") or shutil.which("blender") or "none") + ")",
+         "run: uv sync --extra render   (or install Blender 4.2+ and export BLENDER=/path/to/blender)")
+    line(shutil.which("ffmpeg"), "ffmpeg (for side-by-side videos)", "install ffmpeg (brew / apt / winget)")
+    line(Path(str(DEFAULT_CHAR) + ".blend").exists(), f"character {DEFAULT_CHAR.relative_to(ROOT)}",
+         "the .blend files are in the repository; check that the clone is complete (git lfs is not used)")
+    from dancebuddy import llm  # loads .env
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    line(key and "..." not in key, "OPENROUTER_API_KEY (needed by the agent and the LLM baselines only)",
+         "cp .env.example .env and put your key in it (https://openrouter.ai/keys)")
+    if a.llm and key:
+        try:
+            r = llm.call([{"role": "user", "content": "Reply with the word ok."}], max_tokens=20)
+            line("ok" in (r["text"] or "").lower(), f"a call to {llm.DEFAULT_MODEL}")
+        except Exception as e:  # noqa: BLE001
+            line(False, f"a call to {llm.DEFAULT_MODEL}: {e}")
+    print("all set" if ok else "fix the MISSING items above (the tests and the no-LLM steps work without a key)")
 
 
 # ------------------------------------------------------------------ per dance
@@ -144,6 +183,7 @@ def main(argv=None):
         s.add_argument("--attempts", type=int, default=4, help="plans the agent may submit")
         s.add_argument("--looks", type=int, default=4, help="times the agent may look at rendered frames")
 
+    s = add(sub, "check", cmd_check); s.add_argument("--llm", action="store_true", help="also make one small LLM call")
     s = add(sub, "perceive", cmd_perceive, "video", "run"); s.add_argument("--max-seconds", type=float)
     s = add(sub, "agent", cmd_agent, "run"); char_opt(s); agent_opts(s)
     s.add_argument("--name", default="agent", help="output folder in the run (default agent)")

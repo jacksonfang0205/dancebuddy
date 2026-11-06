@@ -27,7 +27,7 @@ CELL = (180, 320)  # width, height of one picture in the contact sheet
 
 
 def _blender(script: str, args: list[str]) -> list[str]:
-    path = str(ROOT / "blender" / script)
+    path = str(ROOT / "dancebuddy" / "blender" / script)
     if importlib.util.find_spec("bpy") is not None and not os.environ.get("BLENDER"):
         return [sys.executable, path, *args]
     exe = os.environ.get("BLENDER") or shutil.which("blender")
@@ -56,7 +56,7 @@ def pick_frames(score: dict, n_frames: int, frames: list[int] | None = None, uni
 
 
 def check_arm_geometry(curves_path: Path, blend: str, score: dict, frames: list[int], work: Path) -> dict:
-    """Arm folds and sinking into the body on the given frames (blender/check_arm_shape.py), per unit."""
+    """Arm folds and sinking into the body on the given frames (dancebuddy/blender/check_arm_shape.py), per unit."""
     curves = json.loads(Path(curves_path).read_text())
     work.mkdir(parents=True, exist_ok=True)
     sub = work / "geometry_curves.json"

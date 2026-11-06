@@ -7,7 +7,7 @@ For every frame (or every --every-th) it poses the rig and writes:
   height_px   its height in the picture (0..1), to normalise positions
   in_frame    whether each hand is inside the picture
 
-  python blender/measure_motion.py -- --blend assets/plush_soft.blend --curves runs/x/agent/curves.json --out m.json
+  python dancebuddy/blender/measure_motion.py -- --blend assets/plush_soft.blend --curves runs/x/agent/curves.json --out m.json
 """
 
 import argparse
