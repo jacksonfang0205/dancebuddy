@@ -5,35 +5,50 @@
 Input: a video of one person dancing. Output: a video of a plush character (no legs, no neck, soft arms) dancing
 the same dance, side by side with the dancer.
 
-## 1. Requirements
+## 1. Setup
 
-- macOS or Linux, no GPU (rendering runs on the CPU), ~2 GB disk.
-- [uv](https://docs.astral.sh/uv/) (installs Python 3.13) and `ffmpeg`.
-- For the agent only: an [OpenRouter](https://openrouter.ai) API key (~0.1–0.4 USD per run on a 20 s dance).
-  Tests, LLM-free baselines and recomputing the reported results need no key.
-
-## 2. Install
+Requirements are Python 3.13, [uv](https://docs.astral.sh/uv/), FFmpeg, and Blender. Install FFmpeg through your system package manager and make sure `ffmpeg` is on your path.
 
 ```bash
-git clone https://github.com/tianrunyan-tech/dancebuddy.git && cd dancebuddy
-uv sync --extra render                 # dependencies, including Blender as the bpy module
-uv run python -m dancebuddy check      # reports anything missing
-uv run pytest                          # 22 tests, ~20 s
+git clone https://github.com/tianrunyan-tech/dancebuddy.git
+cd dancebuddy
+uv sync
 ```
 
-With Blender 4.2+ already installed: `uv sync` and `export BLENDER=/path/to/blender` instead.
-
-## 3. API key
+Use an installed Blender application by setting its executable path. For example, on macOS:
 
 ```bash
-cp .env.example .env                       # set OPENROUTER_API_KEY=sk-or-v1-...
-uv run python -m dancebuddy check --llm    # one tiny call to confirm the key
+export BLENDER=/Applications/Blender.app/Contents/MacOS/Blender
 ```
 
-Default model `openai/gpt-6-sol`; override with `DANCEBUDDY_MODEL` (needs tool calling and image input).
-LLM calls are cached in `.cache/llm/`, with costs in `.cache/llm/ledger.jsonl`.
+Alternatively, install the repository's optional Blender Python dependency:
 
-## 4. Quick start (synthetic dancer, no video needed)
+```bash
+uv sync --extra render
+```
+
+Configure OpenRouter in a local `.env` file:
+
+```bash
+cp .env.example .env
+```
+
+```dotenv
+OPENROUTER_API_KEY=your-key
+DANCEBUDDY_MODEL=openai/gpt-6-sol
+```
+
+Choose an OpenRouter model that supports tool calling and image input for visual review. Requests are cached locally. Token usage and reported costs are recorded in `.cache/llm/ledger.jsonl`, and each agent run records its own cost summary.
+
+Run the offline tests:
+
+```bash
+uv run pytest
+```
+
+The tests use synthetic data and mocked model responses. They cover the planner baseline, retargeting, tool behavior, motion-language parsing, CLI options, and evaluation metrics.
+
+## 2. Quick start (synthetic dancer, no video needed)
 
 ```bash
 uv run python -m evaluation prepare                       # runs/synth: a 12 s synthetic dance + perception
@@ -47,7 +62,7 @@ Without a key: `uv run python -m evaluation run --no-llm && uv run python -m eva
 The agent writes `runs/synth/agent/`: `summary.json`, `trace.json` (all messages and tool calls), the best
 `plan.json` / `curves.json` / `checks.json`, and one `attempt_N/` per plan with its rendered looks.
 
-## 5. Run on your own video
+## 3. Run on your own video
 
 One person, whole body in view, front view, 10–30 s.
 
@@ -60,7 +75,7 @@ untextured render; `agent --attempts N --looks N`, `--no-looks`, `--no-geometry`
 `replay runs/my <plan.json> --name again` re-executes a saved plan without the LLM; `--char assets/<name>` picks
 another rigged character (default `assets/plush_soft`).
 
-## 6. Reproduce the evaluation
+## 4. Reproduce the evaluation
 
 Systems: `pose_copy`, `plain_copy`, `planner` (baselines), `agent`, `agent_no_looks`, `agent_no_moves`,
 `agent_numbers` (ablations).
