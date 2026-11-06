@@ -1,0 +1,8 @@
+{"units": [
+ {"unit_id": 0, "intent": "arm hits -> upper body nods", "primitives": [{"primitive": "nod", "bones": ["upper", "top"], "amplitude": 15}]},
+ {"unit_id": 1, "intent": "arm hits -> alternating tilts", "primitives": [{"primitive": "tilt", "bones": ["upper", "top"], "amplitude": 15}]},
+ {"unit_id": 2, "intent": "torso twist -> body twist", "primitives": [{"primitive": "twist", "bones": ["lower", "upper"], "amplitude": 20}]},
+ {"unit_id": 3, "intent": "torso twist -> body twist plus squash", "primitives": [{"primitive": "twist", "bones": ["lower", "upper"], "amplitude": 20}, {"primitive": "squash", "amplitude": 0.1, "accents": "every_other"}]},
+ {"unit_id": 4, "intent": "footwork -> hops", "primitives": [{"primitive": "bounce", "amplitude": 0.12}]},
+ {"unit_id": 5, "intent": "footwork -> hops with sway", "primitives": [{"primitive": "bounce", "amplitude": 0.12}, {"primitive": "sway", "bones": ["upper"], "amplitude": 10}]}
+]}

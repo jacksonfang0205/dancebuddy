@@ -88,6 +88,29 @@ re-applies a saved plan without the LLM. `copy-agent --attempts N --looks N` bou
   `check_arm_width.py` measure the arms in a run.
 - **Checks** (`copy_checks.py`): accents with a visible hit, completeness per unit, in frame, body range.
 
+## The first prototype (Jackson's code base, kept alongside)
+
+The MVP grew out of the midpoint prototype, which is still here and still runs:
+
+- **Characters**: the built-in 3D capsule (`character`, `blender/make_capsule.py`), any picture as a rigged 2D
+  cut-out puppet (`puppet`, `dancebuddy/puppet.py`, `blender/make_puppet.py`), and a VLM character card
+  (`card`, `dancebuddy/character.py`). Assets: `capsule*`, `character*`, `sample_character*`, `plush_card.json`,
+  `plush_rig.json`, `plush_views/`.
+- **Agent** (`agent`, `dancebuddy/agent.py`, `primitives.py`): plans primitive moves on a 4-bone spine from the
+  card, compiles them, checks them (`checks.py`) and revises. `apply` compiles a hand-written plan
+  (`examples/`).
+- **Baseline** (`baseline`, `dancebuddy/baseline.py`): direct pose copy onto the spine, `runs/<x>/posecopy`.
+- **Metrics** (`eval`, `checks.py`, `video_metrics.py`): accent recall, beat precision and alignment, offsets,
+  limit violations, idle units, jerk, and pixel-based accent recall on rendered frames; `results/`.
+- `demo-v1 VIDEO RUN [--image PIC]` runs it end to end; `synth RUN` makes a synthetic dancer (no video needed).
+
+```bash
+uv run python -m dancebuddy synth runs/synth
+uv run python -m dancebuddy baseline runs/synth                                  # capsule by default
+uv run python -m dancebuddy apply runs/synth examples/handwritten_plan_synth.json
+uv run python -m dancebuddy eval runs/synth
+```
+
 ## Models and cost
 
 OpenRouter, default `openai/gpt-6-sol` (`DANCEBUDDY_MODEL` to change; it must support tool calling and image input).
@@ -100,21 +123,26 @@ One agent run is about 15-25 calls and about 0.3 USD; exact costs go to `.cache/
 - The accent check is fragile (any jitter counts as a hit); the vision review is the better judge of "does it
   read", but it is a model's opinion.
 - The in-frame check covers the body only; wide reaches can push a hand out of the picture.
-- Not in the MVP: the agent's memory across runs, a 2D puppet (branch `two-d`), a pose library from the reference
-  clips.
+- Not in the MVP: the agent's memory across runs (in history, commit 37d1617), a 2D puppet from 3D renders
+  (branch `two-d`), a pose library from the reference clips.
 
 ## Repository layout
 
 ```
 dancebuddy/  perception.py beats.py signals.py synth.py      dance video -> keypoints, dance score, signals
-             legs.py retarget.py                             the copy
-             copy_plan.py moves.py copy_checks.py            the agent's plan, its moves, the checks
-             copy_agent.py inspect_tools.py llm.py           the agent loop, its geometry and vision tools
+             legs.py retarget.py                             the copy (MVP)
+             copy_plan.py moves.py copy_checks.py            the agent's plan, its moves, the checks (MVP)
+             copy_agent.py inspect_tools.py llm.py           the agent loop, its geometry and vision tools (MVP)
+             agent.py primitives.py checks.py baseline.py    first prototype: primitive agent, checks, baseline
+             character.py puppet.py video_metrics.py         first prototype: card, puppets, pixel metrics
              __main__.py                                     command line
-blender/     rig_soft.py fist.py make_model.py               character set-up
+blender/     rig_soft.py fist.py make_model.py               character set-up (MVP)
+             make_capsule.py make_puppet.py                  first prototype characters
              render_curves.py scene_utils.py                 rendering
              check_arm_shape.py check_arm_width.py           arm measurements
 assets/      plush.blend (imported model), plush_soft.blend + plush_soft_rig.json (rigged),
-             plush_motion_spec.json, pose_landmarker_full.task (MediaPipe, downloaded on first use)
+             plush_motion_spec.json (MVP); capsule*, character*, sample_character*, plush_card/rig/views
+             (first prototype); pose_landmarker_full.task (MediaPipe, downloaded on first use)
+examples/ results/ tools/                            first prototype: hand-written plans, its results, a measuring tool
 tests/       test_pipeline.py
 ```

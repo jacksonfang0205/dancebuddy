@@ -1,0 +1,53 @@
+{
+ "name": "capsule",
+ "height_m": 1.9,
+ "root_bone": "root",
+ "bones": [
+  {
+   "name": "root",
+   "parent": null,
+   "head_z": 0.0,
+   "tail_z": 0.35,
+   "length": 0.35
+  },
+  {
+   "name": "lower",
+   "parent": "root",
+   "head_z": 0.35,
+   "tail_z": 0.85,
+   "length": 0.5
+  },
+  {
+   "name": "upper",
+   "parent": "lower",
+   "head_z": 0.85,
+   "tail_z": 1.35,
+   "length": 0.5
+  },
+  {
+   "name": "top",
+   "parent": "upper",
+   "head_z": 1.35,
+   "tail_z": 1.9,
+   "length": 0.55
+  }
+ ],
+ "channels_per_bone": [
+  "lean",
+  "twist",
+  "sway"
+ ],
+ "root_only_channels": [
+  "lift",
+  "squash"
+ ],
+ "limits": {
+  "lean": 35,
+  "twist": 45,
+  "sway": 35,
+  "lift": 0.35,
+  "squash": 0.35
+ },
+ "description": null,
+ "source": "rig-only"
+}

@@ -1,0 +1,29 @@
+[
+ {
+  "run": "clip1",
+  "system": "agent",
+  "accent_recall": 0.75,
+  "beat_precision": 0.8,
+  "beat_alignment": 0.69,
+  "mean_offset_ms": 66.7,
+  "limit_violations": 0,
+  "idle_units": 0,
+  "mean_motion": 0.522,
+  "jerk": 0.289,
+  "all_checks_passed": true,
+  "attempts": 1
+ },
+ {
+  "run": "clip1",
+  "system": "posecopy",
+  "accent_recall": 0.5,
+  "beat_precision": 0.667,
+  "beat_alignment": 0.667,
+  "mean_offset_ms": 25.0,
+  "limit_violations": 1,
+  "idle_units": 0,
+  "mean_motion": 1.217,
+  "jerk": 0.329,
+  "all_checks_passed": false
+ }
+]

@@ -11,6 +11,17 @@ Per dance:
   python -m dancebuddy render     runs/clip1 --systems copy agent_copy --engine cycles
   python -m dancebuddy compose    runs/clip1 --systems copy agent_copy   # dancer | copy | agent, side by side
   python -m dancebuddy demo       VIDEO runs/clip1                # all of the per-dance steps, in order
+
+From the first prototype (Jackson's code base: primitive plans on a 4-bone spine, picture puppets, the capsule):
+  python -m dancebuddy synth      runs/synth                      # synthetic dancer (no video needed)
+  python -m dancebuddy character  assets/capsule                  # build + render the capsule character
+  python -m dancebuddy puppet     PICTURE assets/blob             # character picture -> rigged 2D puppet + card
+  python -m dancebuddy card       assets/capsule_rig.json         # VLM character card
+  python -m dancebuddy agent      runs/clip1                      # primitive plan -> check -> revise
+  python -m dancebuddy baseline   runs/clip1                      # pose-copy baseline
+  python -m dancebuddy apply      runs/clip1 plan.json            # compile + check a hand-written plan
+  python -m dancebuddy eval       runs/clip1 [runs/clip2 ...]     # metrics table
+  python -m dancebuddy demo-v1    VIDEO runs/clip1 [--image PIC]  # the first prototype's steps, in order
 """
 
 from __future__ import annotations
@@ -25,7 +36,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CHAR = ROOT / "assets" / "plush_soft"
+DEFAULT_CHAR = ROOT / "assets" / "plush_soft"   # the MVP character
+V1_CHAR = ROOT / "assets" / "capsule"            # the first prototype's built-in character
 
 
 # ------------------------------------------------------------------ helpers
@@ -53,6 +65,21 @@ def load(p: Path) -> dict:
     return json.loads(Path(p).read_text())
 
 
+def card_path(char: Path) -> Path:
+    return Path(str(char) + "_card.json")
+
+
+def get_card(char: Path) -> dict:
+    p = card_path(char)
+    if p.exists():
+        return load(p)
+    rig = Path(str(char) + "_rig.json")
+    if not rig.exists():
+        sys.exit(f"no character at {char}; run: python -m dancebuddy character {char}")
+    from .character import build_card
+    return build_card(rig, p, use_vlm=False)
+
+
 def spec_for(char: Path) -> dict:
     p = Path(str(char).split("_")[0] + "_motion_spec.json")
     return load(p) if p.exists() else {}
@@ -73,6 +100,136 @@ def cmd_model(a):
     if a.yaw:
         args += ["--yaw", str(a.yaw)]
     run(blender_cmd("make_model.py", args))
+    if not a.no_card:  # the first prototype's character card (its agent reads it); the MVP does not need it
+        from .character import build_card
+        build_card(Path(str(a.char) + "_rig.json"), card_path(Path(a.char)), use_vlm=not a.no_vlm)
+
+
+# ------------------------------------------------------------------ the first prototype's commands
+
+def cmd_synth(a):
+    from .perception import perceive
+    from .synth import make
+    out = make(a.run)
+    perceive(out / "dancer.mp4", out)
+    (Path(a.run) / "source.txt").write_text(str(Path(a.run) / "dancer.mp4"))
+
+
+def cmd_character(a):
+    run(blender_cmd("make_capsule.py", ["--out", str(a.char), "--engine", a.engine]))
+
+
+def cmd_puppet(a):
+    from .character import build_card
+    from .puppet import cut_out
+    cut_out(a.image, a.char)
+    run(blender_cmd("make_puppet.py", ["--out", str(a.char), "--engine", a.engine]))
+    build_card(Path(str(a.char) + "_rig.json"), card_path(Path(a.char)), use_vlm=not a.no_vlm)
+
+
+def cmd_card(a):
+    from .character import build_card
+    rig = Path(a.rig)
+    out = Path(str(rig).replace("_rig.json", "_card.json"))
+    card = build_card(rig, out, use_vlm=not a.no_vlm)
+    print(json.dumps(card.get("description"), indent=1))
+
+
+def cmd_agent(a):
+    from .agent import run_agent
+    run_dir = Path(a.run)
+    score, card = load(run_dir / "dance_score.json"), get_card(Path(a.char))
+    name = a.name or ("agent" + ("_nocard" if a.no_card else "") + ("_norevise" if a.no_revise else ""))
+    run_agent(score, card, run_dir / name, max_attempts=1 if a.no_revise else a.attempts,
+              use_card_description=not a.no_card, model=a.model)
+
+
+def cmd_baseline(a):
+    from .baseline import pose_copy
+    from .checks import run_checks
+    from .perception import load_keypoints
+    run_dir = Path(a.run)
+    kp, card, score = load_keypoints(run_dir / "keypoints.npz"), get_card(Path(a.char)), load(run_dir / "dance_score.json")
+    curves = pose_copy(kp, card)
+    out = run_dir / "posecopy"
+    out.mkdir(exist_ok=True)
+    (out / "curves.json").write_text(json.dumps(curves))
+    (out / "checks.json").write_text(json.dumps(run_checks(curves, score, card), indent=1))
+    print(f"pose-copy baseline -> {out}")
+
+
+def cmd_apply(a):
+    """Compile a plan you wrote yourself (no LLM) and check it."""
+    from .checks import run_checks
+    from .primitives import compile_plan
+    run_dir = Path(a.run)
+    score, card, plan = load(run_dir / "dance_score.json"), get_card(Path(a.char)), load(Path(a.plan))
+    curves = compile_plan(plan, score, card)
+    out = run_dir / a.name
+    out.mkdir(exist_ok=True)
+    res = run_checks(curves, score, card)
+    (out / "plan.json").write_text(json.dumps(plan, indent=1))
+    (out / "curves.json").write_text(json.dumps(curves))
+    (out / "checks.json").write_text(json.dumps(res, indent=1))
+    print(f"{a.name}: passed={res['passed']} -> {out}")
+
+
+def cmd_eval(a):
+    from .checks import metrics
+    rows = []
+    for rd in a.runs:
+        rd = Path(rd)
+        score = load(rd / "dance_score.json")
+        card = get_card(Path(a.char))
+        for sysdir in sorted(p for p in rd.iterdir() if (p / "curves.json").exists()):
+            m = metrics(load(sysdir / "curves.json"), score, card)
+            extra = {}
+            if list((sysdir / "frames").glob("frame_*.png")):  # rendered: add the pixel-based metric
+                from .video_metrics import motion_from_dir, pixel_metrics
+                extra.update(pixel_metrics(motion_from_dir(sysdir / "frames"), score))
+            if (sysdir / "summary.json").exists():
+                s = load(sysdir / "summary.json")
+                extra["attempts"] = s["attempts"]
+            rows.append({"run": rd.name, "system": sysdir.name, **m, **extra})
+    if not rows:
+        sys.exit("no results found")
+    cols = ["run", "system", "accent_recall", "beat_precision", "beat_alignment", "mean_offset_ms",
+            "limit_violations", "idle_units", "jerk", "px_accent_recall", "px_beat_precision", "all_checks_passed",
+            "attempts"]
+    lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
+    for r in rows:
+        lines.append("| " + " | ".join(str(r.get(c, "")) for c in cols) + " |")
+    table = "\n".join(lines)
+    print(table)
+    out = Path(a.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(rows, indent=1))
+    out.with_suffix(".md").write_text(table + "\n")
+    print(f"\nwrote {out} and {out.with_suffix('.md')}")
+
+
+def cmd_demo_v1(a):
+    """The first prototype end to end: character, perceive, primitive agent, pose-copy baseline, render, eval."""
+    char = Path(a.char)
+    if a.image:
+        if a.char == V1_CHAR:
+            char = ROOT / "assets" / Path(a.image).stem
+        cmd_puppet(argparse.Namespace(image=a.image, char=char, engine=a.engine, no_vlm=False))
+    elif not Path(str(char) + ".blend").exists():
+        cmd_character(argparse.Namespace(char=char, engine=a.engine))
+    if not card_path(char).exists():
+        cmd_card(argparse.Namespace(rig=str(char) + "_rig.json", no_vlm=False))
+    if a.video == "synth":
+        cmd_synth(argparse.Namespace(run=a.run))
+    else:
+        cmd_perceive(argparse.Namespace(video=a.video, run=a.run, max_seconds=a.max_seconds))
+    cmd_agent(argparse.Namespace(run=a.run, char=char, name=None, no_card=False, no_revise=False,
+                                 attempts=a.attempts, model=None))
+    cmd_baseline(argparse.Namespace(run=a.run, char=char))
+    cmd_render(argparse.Namespace(run=a.run, char=char, systems=["agent", "posecopy"], engine=a.engine,
+                                  width=a.width, height=a.height, max_frames=0, fps=0, preview=False))
+    cmd_compose(argparse.Namespace(run=a.run, systems=["agent", "posecopy"], height=a.height, preview=False))
+    cmd_eval(argparse.Namespace(runs=[a.run], char=char, out=str(Path(a.run) / "results.json")))
 
 
 def cmd_copy(a):
@@ -212,8 +369,8 @@ def main(argv=None):
             s.add_argument(arg)
         return s
 
-    def char_opt(s):
-        s.add_argument("--char", type=Path, default=DEFAULT_CHAR, help="rigged character prefix (default assets/plush_soft)")
+    def char_opt(s, default=DEFAULT_CHAR):
+        s.add_argument("--char", type=Path, default=default, help=f"rigged character prefix (default {default.relative_to(ROOT)})")
 
     def render_opts(s):
         s.add_argument("--engine", default="cycles", choices=["auto", "eevee", "cycles", "workbench"])
@@ -226,7 +383,8 @@ def main(argv=None):
 
     s = add("perceive", cmd_perceive, "video", "run"); s.add_argument("--max-seconds", type=float)
     s = add("model", cmd_model, "model"); s.add_argument("char", type=Path, help="output prefix, e.g. assets/plush")
-    s.add_argument("--engine", default="auto")
+    s.add_argument("--engine", default="auto"); s.add_argument("--no-vlm", action="store_true")
+    s.add_argument("--no-card", action="store_true", help="skip the first prototype's character card")
     s.add_argument("--yaw", type=float, default=0.0, help="rotate the model (degrees) if it does not face the camera")
     s = add("copy", cmd_copy, "run"); char_opt(s); s.add_argument("--name", default="copy")
     s.add_argument("--plan", help="a saved copy plan (e.g. runs/x/agent_copy/plan.json) to apply, no LLM")
@@ -242,6 +400,25 @@ def main(argv=None):
     s = add("demo", cmd_demo, "video", "run"); char_opt(s); render_opts(s); agent_opts(s)
     s.add_argument("--max-seconds", type=float)
     s.add_argument("--preview", action="store_true", help="quick untextured renders instead of the full ones")
+
+    # the first prototype (primitive plans, capsule / puppets, pose-copy baseline, metrics)
+    add("synth", cmd_synth, "run")
+    s = sub.add_parser("character"); s.set_defaults(fn=cmd_character)
+    s.add_argument("char", type=Path, nargs="?", default=V1_CHAR); s.add_argument("--engine", default="auto")
+    s = add("puppet", cmd_puppet, "image"); s.add_argument("char", type=Path, help="output prefix, e.g. assets/blob")
+    s.add_argument("--engine", default="auto"); s.add_argument("--no-vlm", action="store_true")
+    s = add("card", cmd_card, "rig"); s.add_argument("--no-vlm", action="store_true")
+    s = add("agent", cmd_agent, "run"); char_opt(s, V1_CHAR)
+    s.add_argument("--name"); s.add_argument("--attempts", type=int, default=4); s.add_argument("--model")
+    s.add_argument("--no-card", action="store_true", help="ablation: hide the VLM body description")
+    s.add_argument("--no-revise", action="store_true", help="ablation: one attempt, no revision")
+    s = add("baseline", cmd_baseline, "run"); char_opt(s, V1_CHAR)
+    s = add("apply", cmd_apply, "run", "plan"); char_opt(s, V1_CHAR); s.add_argument("--name", default="handwritten")
+    s = sub.add_parser("eval"); s.set_defaults(fn=cmd_eval); s.add_argument("runs", nargs="+"); char_opt(s, V1_CHAR)
+    s.add_argument("--out", default=str(ROOT / "results" / "results.json"))
+    s = add("demo-v1", cmd_demo_v1, "video", "run"); char_opt(s, V1_CHAR); render_opts(s)
+    s.add_argument("--max-seconds", type=float); s.add_argument("--attempts", type=int, default=4)
+    s.add_argument("--image", help="character picture (PNG with transparency, or on a plain background)")
 
     a = p.parse_args(argv)
     a.fn(a)

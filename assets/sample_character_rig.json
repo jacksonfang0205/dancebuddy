@@ -1,0 +1,58 @@
+{
+ "name": "sample_character",
+ "kind": "2D cut-out puppet made from a picture (flat, seen from the front)",
+ "height_m": 1.9,
+ "width_m": 0.95,
+ "root_bone": "root",
+ "bones": [
+  {
+   "name": "root",
+   "parent": null,
+   "head_z": 0.0,
+   "tail_z": 0.342,
+   "length": 0.342
+  },
+  {
+   "name": "lower",
+   "parent": "root",
+   "head_z": 0.342,
+   "tail_z": 0.855,
+   "length": 0.513
+  },
+  {
+   "name": "upper",
+   "parent": "lower",
+   "head_z": 0.855,
+   "tail_z": 1.368,
+   "length": 0.513
+  },
+  {
+   "name": "top",
+   "parent": "upper",
+   "head_z": 1.368,
+   "tail_z": 1.9,
+   "length": 0.532
+  }
+ ],
+ "channels_per_bone": [
+  "lean",
+  "twist",
+  "sway"
+ ],
+ "root_only_channels": [
+  "lift",
+  "squash"
+ ],
+ "limits": {
+  "sway": 35,
+  "lean": 20,
+  "twist": 25,
+  "lift": 0.35,
+  "squash": 0.35
+ },
+ "notes": "sway (side to side, in the picture plane) reads best on a flat puppet; lean and twist move it out of the plane, keep them small",
+ "views": {
+  "original_picture": "sample_character_sprite.png",
+  "front": "sample_character_views/front.png"
+ }
+}

@@ -1,0 +1,107 @@
+{
+ "units": [
+  {
+   "unit_id": 0,
+   "intent": "arm hits -> arm raises",
+   "primitives": [
+    {
+     "primitive": "nod",
+     "bones": [
+      "arm_L",
+      "arm_R"
+     ],
+     "amplitude": 40
+    }
+   ]
+  },
+  {
+   "unit_id": 1,
+   "intent": "alternating arm hits",
+   "primitives": [
+    {
+     "primitive": "nod",
+     "bones": [
+      "arm_L"
+     ],
+     "amplitude": 45,
+     "accents": "every_other"
+    },
+    {
+     "primitive": "nod",
+     "bones": [
+      "arm_R"
+     ],
+     "amplitude": 45,
+     "accents": [
+      83
+     ]
+    }
+   ]
+  },
+  {
+   "unit_id": 2,
+   "intent": "twist",
+   "primitives": [
+    {
+     "primitive": "twist",
+     "bones": [
+      "lower",
+      "upper"
+     ],
+     "amplitude": 20
+    }
+   ]
+  },
+  {
+   "unit_id": 3,
+   "intent": "twist",
+   "primitives": [
+    {
+     "primitive": "twist",
+     "bones": [
+      "lower",
+      "upper"
+     ],
+     "amplitude": 20
+    },
+    {
+     "primitive": "sway",
+     "bones": [
+      "arm_L",
+      "arm_R"
+     ],
+     "amplitude": 30
+    }
+   ]
+  },
+  {
+   "unit_id": 4,
+   "intent": "hops",
+   "primitives": [
+    {
+     "primitive": "bounce",
+     "amplitude": 0.12
+    }
+   ]
+  },
+  {
+   "unit_id": 5,
+   "intent": "hops with arm flaps",
+   "primitives": [
+    {
+     "primitive": "bounce",
+     "amplitude": 0.12
+    },
+    {
+     "primitive": "nod",
+     "bones": [
+      "arm_L",
+      "arm_R"
+     ],
+     "amplitude": 30,
+     "accents": "every_other"
+    }
+   ]
+  }
+ ]
+}

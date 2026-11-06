@@ -1,0 +1,134 @@
+{
+ "name": "plush",
+ "kind": "3D model with an automatic 4-bone spine rig",
+ "source_model": "plush_unrigged.glb",
+ "height_m": 1.436,
+ "width_m": 1.6,
+ "root_bone": "root",
+ "bones": [
+  {
+   "name": "root",
+   "parent": null,
+   "head_z": 0.0,
+   "tail_z": 0.258,
+   "length": 0.258
+  },
+  {
+   "name": "lower",
+   "parent": "root",
+   "head_z": 0.258,
+   "tail_z": 0.646,
+   "length": 0.388
+  },
+  {
+   "name": "upper",
+   "parent": "lower",
+   "head_z": 0.646,
+   "tail_z": 1.034,
+   "length": 0.388
+  },
+  {
+   "name": "top",
+   "parent": "upper",
+   "head_z": 1.034,
+   "tail_z": 1.436,
+   "length": 0.402
+  },
+  {
+   "name": "arm_L",
+   "parent": "lower",
+   "side": "left",
+   "head": [
+    0.42,
+    0.0,
+    0.527
+   ],
+   "tail": [
+    0.8,
+    -0.333,
+    0.406
+   ],
+   "length": 0.52,
+   "limb": "arm"
+  },
+  {
+   "name": "arm_R",
+   "parent": "lower",
+   "side": "right",
+   "head": [
+    -0.42,
+    0.0,
+    0.591
+   ],
+   "tail": [
+    -0.8,
+    -0.329,
+    0.405
+   ],
+   "length": 0.536,
+   "limb": "arm"
+  }
+ ],
+ "channels_per_bone": [
+  "lean",
+  "twist",
+  "sway"
+ ],
+ "root_only_channels": [
+  "lift",
+  "squash"
+ ],
+ "limits": {
+  "lean": 35,
+  "twist": 45,
+  "sway": 35,
+  "lift": 0.35,
+  "squash": 0.35,
+  "arm_L.lean": 70,
+  "arm_L.sway": 70,
+  "arm_L.twist": 70,
+  "arm_R.lean": 70,
+  "arm_R.sway": 70,
+  "arm_R.twist": 70
+ },
+ "notes": "the spine bends the whole body; hair and other parts follow the spine bone at their height. Arm bones (arm_L, arm_R) point sideways: lean raises (+) or lowers (-) the arm, sway swings it forward/back, twist rolls it around its own length.",
+ "description": {
+  "body_plan": "A pear-shaped plush character has a continuous tan body, blue arms, a face on its upper front, and long curly hair covering its back.",
+  "visible_parts": [
+   "tan body",
+   "blue arms and hands",
+   "face with blue eyes",
+   "long brown curly hair",
+   "small red chest decoration"
+  ],
+  "missing_human_parts": [
+   "legs",
+   "feet",
+   "distinct neck",
+   "separate head",
+   "distinct hips"
+  ],
+  "bone_regions": {
+   "root": "base of the body and overall position",
+   "lower": "lower body and arm attachments",
+   "upper": "upper body, face, and mid-length hair",
+   "top": "crown and upper hair",
+   "arm_L": "left blue arm and hand",
+   "arm_R": "right blue arm and hand"
+  },
+  "substitutions": {
+   "arms": "Use the blue arms to gesture, swing, and reach.",
+   "legs": "Suggest steps with small hops, side-to-side shifts, and body bounces.",
+   "hips": "Use lower-body sway and twist to suggest hip movement.",
+   "head": "Use gentle upper-spine and top-bone turns to orient the face.",
+   "torso": "Bend and twist the spine to make the whole plush body groove."
+  },
+  "constraints": [
+   "Keep the body from sinking into the floor.",
+   "Do not imply separate knees, feet, or a detached head.",
+   "Avoid bends that severely distort the face or pull the hair away from the body.",
+   "Keep arm rotations within the rig limits."
+  ]
+ },
+ "source": "rig+vlm"
+}

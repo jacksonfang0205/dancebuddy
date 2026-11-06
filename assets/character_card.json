@@ -1,0 +1,91 @@
+{
+ "name": "character",
+ "kind": "2D cut-out puppet made from a picture (flat, seen from the front)",
+ "height_m": 1.3823468328141226,
+ "width_m": 1.598,
+ "root_bone": "root",
+ "bones": [
+  {
+   "name": "root",
+   "parent": null,
+   "head_z": 0.0,
+   "tail_z": 0.249,
+   "length": 0.249
+  },
+  {
+   "name": "lower",
+   "parent": "root",
+   "head_z": 0.249,
+   "tail_z": 0.622,
+   "length": 0.373
+  },
+  {
+   "name": "upper",
+   "parent": "lower",
+   "head_z": 0.622,
+   "tail_z": 0.995,
+   "length": 0.373
+  },
+  {
+   "name": "top",
+   "parent": "upper",
+   "head_z": 0.995,
+   "tail_z": 1.382,
+   "length": 0.387
+  }
+ ],
+ "channels_per_bone": [
+  "lean",
+  "twist",
+  "sway"
+ ],
+ "root_only_channels": [
+  "lift",
+  "squash"
+ ],
+ "limits": {
+  "sway": 35,
+  "lean": 20,
+  "twist": 25,
+  "lift": 0.35,
+  "squash": 0.35
+ },
+ "notes": "sway (side to side, in the picture plane) reads best on a flat puppet; lean and twist move it out of the plane, keep them small",
+ "description": {
+  "body_plan": "A flat, front-facing, pear-shaped plush character with curly hair and blue mitten-like arms but no separate legs or neck.",
+  "visible_parts": [
+   "rounded tan body",
+   "face",
+   "curly brown hair",
+   "blue arms and mitten-like hands",
+   "heart patch"
+  ],
+  "missing_human_parts": [
+   "legs",
+   "feet",
+   "neck",
+   "distinct head",
+   "articulated elbows and fingers"
+  ],
+  "bone_regions": {
+   "root": "base of the body and overall position",
+   "lower": "lower belly",
+   "upper": "upper body, heart patch, and attached arms",
+   "top": "face and hair"
+  },
+  "substitutions": {
+   "arms": "Suggest arm gestures by swaying the upper body, carrying the attached blue arms with it.",
+   "legs": "Use root lift for hops and squash for landings instead of steps.",
+   "hips": "Sway the root and lower belly from side to side.",
+   "head": "Tilt the face and hair with gentle upper and top-bone sway.",
+   "torso": "Bend the lower and upper body in a soft, continuous curve."
+  },
+  "constraints": [
+   "Keep the base above the floor except during squash on landing.",
+   "Avoid implying independently articulated arms or nonexistent legs.",
+   "Favor in-plane sway; keep lean and twist small so the flat puppet stays readable.",
+   "Keep motion within the rig limits."
+  ]
+ },
+ "source": "rig+vlm"
+}
