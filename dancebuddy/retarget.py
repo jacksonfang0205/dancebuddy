@@ -54,12 +54,15 @@ STYLE = {"straight_above_deg": 120,         # raised arms straighten out (refere
          "clear_steps": 12,                 # ...at most this many times...
          "rest_match_to_deg": 110.0,        # the hanging-pose difference fades out by this arm raise (deg)
          "clear_smooth_s": 0.08,            # the corrected arm is smoothed over this long
-         "clear_tolerance": 0.005,          # ...until it sinks in less than this (body heights): plush gives
+         "clear_tolerance": 0.005,
+         "touch_share": 0.75,               # where the agent sets an arm's pose (moves.py), the arm may lie on the
+                                            # body (hands at the chest, an arm across it): this much less clearance          # ...until it sinks in less than this (body heights): plush gives
          "elbow_from_deg": 40.0,            # a bend this big counts as bent (for the fists)...
          "elbow_full_deg": 90.0,            # ...fully from here
          # the shoulder is a socket that slides up the side of the body as the arm rises (reference: a raised
          # arm starts beside the face, a hanging arm beside the chest), so raised hands get above the head
-         "socket_slide": 0.12,              # how far the seam slides up the body for a vertical arm (body heights)
+         "socket_slide": 0.2,               # how far the seam slides up the body for a vertical arm (body heights):
+                                            # enough for raised hands to reach above the head (motion spec)
          "root_share": 0.5,                 # part of the arm's turn taken at the seam, so the root turns with the
                                             # arm instead of folding (the shoulder pivots just inside the seam)
          "socket_slide_from_deg": 80,
@@ -525,7 +528,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
                 excess = np.maximum(excess, d0)
             margin = margin - excess
 
-        def place_arm(u, f, scale, name=name, socket=socket, sign=sign, shape=shape, margin=margin, ts=ts):
+        def place_arm(u, f, scale, touch=0.0, name=name, socket=socket, sign=sign, shape=shape, margin=margin, ts=ts):
             """Pose the arm; if any part of it sinks into the body, turn it (upper arm and forearm together,
             around the shoulder) a little at a time away from the body until it is clear (motion spec: arms pass
             in front of the body; a hand on the chest lies on it)."""
@@ -540,7 +543,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
                 p0 = np.asarray(M[f"{socket}__head"], float) if socket else np.zeros(3)
                 head = p0 + off + c0.apply(np.asarray(M[f"{name}__head"], float) - p0)
                 pts = arm_centre_line(head, info, ts)
-                depth, out = body_depth(pts, shape, margin)
+                depth, out = body_depth(pts, shape, margin * (1 - STYLE["touch_share"] * touch))
                 k = int(np.argmax(depth))
                 if depth[k] <= STYLE["clear_tolerance"] * height:
                     break
@@ -570,7 +573,8 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
                 _norm((1 - am["w"][i]) * f + am["w"][i] * am["f"][i])) if am["w"][i] > 0 else (u, f)
                for i, (u, f) in enumerate(raw)]
         if shape is not None:
-            fixed = np.array([place_arm(u, f, float(knob["arms"][i]))[5:] for i, (u, f) in enumerate(raw)])
+            fixed = np.array([place_arm(u, f, float(knob["arms"][i]), float(am["w"][i]))[5:]
+                              for i, (u, f) in enumerate(raw)])
             moved = np.degrees(np.arccos(np.clip((fixed[:, 0] * _norm(np.array([r[0] for r in raw]))).sum(1), -1, 1)))
             clear_report[side_name] = {"frames_turned": round(float((moved > 1).mean()), 3),
                                        "mean_deg": round(float(moved.mean()), 1),
@@ -580,7 +584,7 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
                                     for a in range(2)], 1))
             raw = [(fixed[i, 0], fixed[i, 1]) for i in range(n)]
         for i in range(n):
-            c0, off, q, curve, chord, u, f = place_arm(*raw[i], float(knob["arms"][i]))
+            c0, off, q, curve, chord, u, f = place_arm(*raw[i], float(knob["arms"][i]), float(am["w"][i]))
             if socket:
                 ch[f"{socket}.quat"].append(_local(M[socket], ident, c0))
                 ch[f"{socket}.loc"].append([round(float(x), 4) for x in M[socket].T @ off])  # -> bone rest frame

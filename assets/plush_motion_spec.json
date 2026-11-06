@@ -136,7 +136,7 @@
  "known_gaps": [
   "the texture has a shadow baked under each arm, which shows as a darker patch on the body side when the arm moves away",
   "a raised arm's seam still shows a thin dark slit from the side",
-  "hands to the face and an arm across the whole chest do not reach as far as in the reference"
+  "a raised arm still pulls a sheet of skin up from the body side (the model fuses the arm to the body); a clean separate arm is planned"
  ],
  "status": {
   "done": [
@@ -149,7 +149,9 @@
    "tilting on the base rises like a roly-poly toy, so the bottom never sinks into the floor",
    "spin: the body turns all the way round (to its back and on), read from the dancer's shoulder width in the picture",
    "fists: each mitten balls up (a shape key, mesh unchanged) when the arm is raised and bent, opens when it reaches out or drops",
-   "arms bend as one round arc that never folds, and never sink into the body (the whole arm, with its thickness, is kept outside the body's shape)"
+   "arms bend as one round arc that never folds, and never sink into the body (the whole arm, with its thickness, is kept outside the body's shape)",
+   "raised hands reach above the head (the socket slides further up for a raised arm)",
+   "hands can meet at the chest and an arm can lie across it when the agent sets that pose (the arm may touch the body)"
   ],
   "not_yet": [
    "hand open/closed copied from the dancer's own hand (now from the arm pose only)",

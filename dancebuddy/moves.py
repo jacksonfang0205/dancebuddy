@@ -31,7 +31,7 @@ POSES = {  # name: (raise_, forward, bend, fist) for one arm; "both" mirrors it
     "out_side": (90, 10, 10, False),
     "overhead": (172, 15, 0, True),
     "raised_bent": (120, 10, 100, True),        # upper arm out, forearm up: a soft elbow, fist
-    "hands_together_chest": (75, 130, 40, False),
+    "hands_together_chest": (60, 130, 40, False),
     "hands_to_face": (115, 125, 60, False),
     "across_chest": (80, 145, 30, False),
     "point_forward": (90, 75, 0, False),
