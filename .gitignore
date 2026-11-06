@@ -10,3 +10,4 @@ runs/*/attempt_*/
 .DS_Store
 .env*
 *.glb
+.cache/

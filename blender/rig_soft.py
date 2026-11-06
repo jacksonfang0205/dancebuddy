@@ -4,10 +4,11 @@ The rig follows the character's motion spec (assets/<name>_motion_spec.json), wh
   * body      : root at the base (tilt, turn, hop, squash) -> body_lower -> body_upper (barely bends)
   * shoulders : arm_X_0, hidden in the body and not deforming; turning it slides the arm's root up the body side
                 (a raised arm starts beside the face)
-  * arms      : arm_X_1..3, B-bones, so each arm bends as one smooth curve (no elbow)
-  * hair      : physically simulated: a coarse closed shell around the hair is a cloth (pinned at the scalp, with
-                gravity, inertia, inner pressure and collisions with the body) and the real hair follows it
-                (Surface Deform). Its physical properties come from the motion spec, not from any dance.
+  * arms      : arm_X_1, one bendable bone (16-segment B-bone) per arm: it bends as one smooth curve and keeps its
+                width and length (no elbow, no blending between bones along the arm)
+  * hands     : each mitten can ball up into a fist: a shape key (fist_L / fist_R) the hand blends into, made by
+                rolling the fingers up toward the back of the hand (blender/fist.py)
+  * hair      : no bones of its own; it moves with the head (not animated separately)
 
 The mesh is never edited. Parts are found from the base-colour texture (arms = blue, hair = dark brown). Weights
 come from Blender's heat diffusion ("automatic weights") computed on a closed voxel copy of the body (generated
@@ -27,6 +28,7 @@ import numpy as np
 from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fist import fist_shape, smooth_shape  # noqa: E402
 from scene_utils import setup_render  # noqa: E402
 
 FORWARD = Vector((0, -1, 0))  # the character faces the camera, which looks along +Y
@@ -40,8 +42,6 @@ def parse():
     p.add_argument("--arm-hue", type=float, nargs=2, default=[190, 260], help="hue range (deg) of the arms")
     p.add_argument("--hair-max-value", type=float, default=0.45, help="hair is darker than this (HSV value)")
     p.add_argument("--voxel", type=float, default=0.012, help="voxel size of the weighting copy, x height")
-    p.add_argument("--spec", default="", help="motion spec with the hair's physical properties "
-                   "(default: <out dir>/<name>_motion_spec.json, name = out name before '_')")
     return p.parse_args(argv)
 
 
@@ -104,154 +104,6 @@ def centre_line(p, start, n_pts=4):
     return pts
 
 
-def chain_weights(s, joints, blend=0.12):
-    """Weights for a bone chain from a parameter s along it. joints = [s0, s1, ..., sK] (bone k spans s_k..s_k+1)."""
-    k = len(joints) - 1
-    W = np.zeros((len(s), k))
-    for i in range(k):
-        lo, hi = joints[i], joints[i + 1]
-        w = np.ones(len(s))
-        if i > 0:
-            w *= np.clip((s - (lo - blend / 2)) / blend, 0, 1)
-        if i < k - 1:
-            w *= np.clip(((hi + blend / 2) - s) / blend, 0, 1)
-        W[:, i] = w
-    return W / np.maximum(W.sum(1, keepdims=True), 1e-9)
-
-
-HAIR_PHYSICS = {  # defaults; the motion spec's physics.hair overrides them (properties of the character)
-    "cage_voxel": 0.045, "collider_voxel": 0.035,  # x height
-    "pin_top": 0.12, "pin_free": 0.38,            # below the crown, x height: pinned above pin_top, loosest below pin_free
-    "pin_min": 0.25,                              # even the loosest hair is pulled back toward its shape (it springs back)
-    "gravity": 0.2,                               # the modelled shape already hangs; gravity only adds a little sag
-    "quality": 8, "mass": 0.15, "air_damping": 1.0, "tension": 30.0, "compression": 30.0, "shear": 15.0,
-    "bending": 20.0, "pin_stiffness": 3.0, "pressure": 5.0, "collision_distance": 0.01,
-}
-
-
-def _part_copy(body, keep, name, voxel, one_piece=False):
-    """A closed coarse copy of part of the body (voxel remesh of the kept vertices), not rendered."""
-    import bmesh
-
-    obj = body.copy()
-    obj.data = body.data.copy()
-    obj.name = name
-    obj.modifiers.clear()
-    obj.vertex_groups.clear()
-    obj.parent = None
-    bpy.context.collection.objects.link(obj)
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    bm.verts.ensure_lookup_table()
-    bmesh.ops.delete(bm, geom=[bm.verts[i] for i in np.nonzero(~keep)[0]], context="VERTS")
-    bm.to_mesh(obj.data)
-    bm.free()
-    rm = obj.modifiers.new("Remesh", "REMESH")
-    rm.mode, rm.voxel_size = "VOXEL", voxel
-    bpy.ops.object.select_all(action="DESELECT")
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-    bpy.ops.object.modifier_apply(modifier=rm.name)
-    # clean, all-triangle surface (Surface Deform rejects concave or degenerate polygons)
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=voxel * 0.05)
-    bmesh.ops.dissolve_degenerate(bm, dist=voxel * 0.05, edges=bm.edges)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
-    bad = [e for e in bm.edges if len(e.link_faces) > 2]
-    if bad:
-        bmesh.ops.delete(bm, geom=list({f for e in bad for f in e.link_faces}), context="FACES")
-    # one piece only: a loose piece of a simulated shell has nothing holding it and would fall away
-    islands, seen = [], set()
-    for v in bm.verts:
-        if v in seen:
-            continue
-        stack, comp = [v], []
-        while stack:
-            x = stack.pop()
-            if x in seen:
-                continue
-            seen.add(x)
-            comp.append(x)
-            stack.extend(e.other_vert(x) for e in x.link_edges)
-        islands.append(comp)
-    islands.sort(key=len, reverse=True)
-    if one_piece and len(islands) > 1:
-        bmesh.ops.delete(bm, geom=[v for comp in islands[1:] for v in comp], context="VERTS")
-    print(f"{name}: {sum(map(len, islands))} vertices in {len(islands)} pieces" + (", kept the main one" if one_piece else ""))
-    bm.to_mesh(obj.data)
-    bm.free()
-    obj.data.materials.clear()
-    obj.hide_render = True
-    obj.display_type = "WIRE"
-    return obj
-
-
-def add_hair_physics(body, rig, co, is_hair, W, deform, height, phys):
-    from scipy.spatial import cKDTree
-
-    p = {**HAIR_PHYSICS, **phys}
-    # the body (and arms) the hair collides with, deformed by the rig like the body
-    col = _part_copy(body, ~is_hair, "BodyCollider", p["collider_voxel"] * height)
-    cco = np.array([v.co[:] for v in col.data.vertices])
-    _, nn = cKDTree(co[~is_hair]).query(cco, k=1)
-    Wn = W[~is_hair][nn]
-    for j, n in enumerate(deform):
-        g = col.vertex_groups.new(name=n)
-        for vi in np.nonzero(Wn[:, j] > 1e-3)[0]:
-            g.add([int(vi)], float(Wn[vi, j]), "REPLACE")
-    am = col.modifiers.new("Armature", "ARMATURE")
-    am.object = rig
-    col.modifiers.new("Collision", "COLLISION")
-    col.collision.thickness_outer = p["collision_distance"]
-    col.parent = rig
-
-    # the hair shell: follows the head, pinned at the scalp, free toward the ends
-    cage = _part_copy(body, is_hair, "HairCage", p["cage_voxel"] * height, one_piece=True)
-    gco = np.array([v.co[:] for v in cage.data.vertices])
-    crown = float(co[is_hair, 2].max())
-    z_pin, z_free = crown - p["pin_top"] * height, crown - p["pin_free"] * height
-    pin = np.clip((gco[:, 2] - z_free) / (z_pin - z_free), 0, 1)
-    pin = p["pin_min"] + (1 - p["pin_min"]) * pin * pin * (3 - 2 * pin)
-    gu = cage.vertex_groups.new(name="body_upper")
-    gu.add(list(range(len(gco))), 1.0, "REPLACE")
-    gp = cage.vertex_groups.new(name="pin")
-    for vi in range(len(gco)):
-        gp.add([vi], float(pin[vi]), "REPLACE")
-    am = cage.modifiers.new("Armature", "ARMATURE")
-    am.object = rig
-    cl = cage.modifiers.new("Cloth", "CLOTH")
-    st = cl.settings
-    st.quality, st.mass, st.air_damping = int(p["quality"]), p["mass"], p["air_damping"]
-    st.tension_stiffness, st.compression_stiffness = p["tension"], p["compression"]
-    st.shear_stiffness, st.bending_stiffness = p["shear"], p["bending"]
-    st.vertex_group_mass, st.pin_stiffness = "pin", p["pin_stiffness"]
-    st.use_pressure, st.uniform_pressure_force = True, p["pressure"]
-    st.effector_weights.gravity = p["gravity"]
-    cl.collision_settings.use_collision = True
-    cl.collision_settings.distance_min = p["collision_distance"]
-    cl.point_cache.frame_start, cl.point_cache.frame_end = 1, 100000
-    cage.parent = rig
-    print(f"hair physics: shell {len(gco)} vertices ({int((pin > 0.99).sum())} fully pinned), collider {len(cco)}")
-
-    # the real hair follows the shell
-    # only points inside the hair mass (dark brown details on the face, like eyelashes, stay on the face)
-    near, _ = cKDTree(gco).query(co, k=1)
-    in_mass = is_hair & (near < 1.5 * p["cage_voxel"] * height)
-    hg = body.vertex_groups.new(name="hair_sim")
-    for vi in np.nonzero(in_mass)[0]:
-        hg.add([int(vi)], 1.0, "REPLACE")
-    print(f"hair points following the simulation: {int(in_mass.sum())} of {int(is_hair.sum())}")
-    sd = body.modifiers.new("HairSim", "SURFACE_DEFORM")
-    sd.target = cage
-    sd.vertex_group = "hair_sim"
-    bpy.ops.object.select_all(action="DESELECT")
-    bpy.context.view_layer.objects.active = body
-    body.select_set(True)
-    bpy.ops.object.surfacedeform_bind(modifier=sd.name)
-    print(f"hair bound to its shell: {sd.is_bound}")
-
-
 # ------------------------------------------------------------------ build
 
 def main():
@@ -290,7 +142,9 @@ def main():
         p = co[is_arm & (np.sign(co[:, 0] - cx) == sign)]
         inner = p[np.argsort(sign * (p[:, 0] - cx))[: max(10, len(p) // 12)]]
         root_pt = inner.mean(0)                           # where the arm meets the body
-        pivot = np.array([cx + sign * 0.15 * abs(root_pt[0] - cx), root_pt[1], root_pt[2]])  # inside the body
+        # the shoulder turns around a point just inside the seam, so when it takes part of the arm's turn the
+        # arm's root turns in place (a deep pivot would swing the root around, e.g. back into the hair)
+        pivot = root_pt - np.array([sign * 0.06 * height, 0.0, 0.0])
         arms[side] = {"pivot": pivot, "pts": centre_line(p, root_pt)}
         print(f"arm_{side}: root {np.round(root_pt, 3)}, tip {np.round(arms[side]['pts'][-1], 3)}")
     # ---- armature
@@ -310,14 +164,15 @@ def main():
         sh.head, sh.tail = Vector(d["pivot"]), Vector(d["pts"][0])
         sh.align_roll(FORWARD)
         sh.parent = eb["body_lower"]
-        prev = sh
-        for i in range(3):
-            b = eb.new(f"arm_{side}_{i + 1}")
-            b.head, b.tail = Vector(d["pts"][i]), Vector(d["pts"][i + 1])
-            b.align_roll(FORWARD)
-            b.bbone_segments = 6
-            b.parent, b.use_connect = prev, True
-            prev = b
+        sh.inherit_scale = "NONE"  # the body may squash; the arms keep their width (motion spec)
+        # the whole arm is ONE bendable bone (B-bone, 16 segments): every arm point belongs to it alone, so the
+        # arm bends as one smooth curve and keeps its width and length (no blending between bones along it)
+        b = eb.new(f"arm_{side}_1")
+        b.head, b.tail = Vector(d["pts"][0]), Vector(d["pts"][-1])
+        b.align_roll(FORWARD)
+        b.bbone_segments = 16
+        b.parent, b.use_connect = sh, False  # not connected: the curve's start follows the arm, not the shoulder
+    eb["body_upper"].inherit_scale = "NONE"  # the lower body bulges when it bends; the head end keeps its size
     bpy.ops.object.mode_set(mode="OBJECT")
 
     # ---- weights
@@ -413,20 +268,88 @@ def main():
         # distance from the seam, measured along the arm: 0 at the arm's innermost points
         s0 = np.percentile(s_par[m], 3)
         s_rel = np.clip((s_par - s0) / (1 - s0 + 1e-9), 0, 1)
-        on = np.clip(s_rel / 0.35, 0, 1)
+        on = np.clip(s_rel / 0.15, 0, 1)  # only the seam itself blends with the shoulder
         on = on * on * (3 - 2 * on)
-        Wa = chain_weights(s_rel, list((seg / seg[-1])), blend=0.4)  # wide: the arm bends as one curve
         W[m] = 0
         W[m, col[f"arm_{side}_0"]] = 1 - on[m]
-        for i in range(3):
-            W[m, col[f"arm_{side}_{i + 1}"]] = on[m] * Wa[m, i]
+        W[m, col[f"arm_{side}_1"]] = on[m]
         # the body band around the seam follows the socket a little
         dist, _ = _T(co[m]).query(co, k=1)
         band = is_body & (dist < 0.05 * height)
-        f = 0.6 * (1 - dist[band] / (0.05 * height))
+        f = 0.3 * (1 - dist[band] / (0.05 * height))
         W[band] *= (1 - f)[:, None]
         W[band, col[f"arm_{side}_0"]] += f
     W /= np.maximum(W.sum(1, keepdims=True), 1e-9)
+
+    # which way each hand's flat face points at rest (the thinnest direction of the mitten, across the arm):
+    # when driving, the arm keeps this face toward the camera so it shows its full width
+    faces = {}
+    for side, d in arms.items():
+        m = is_arm & (np.sign(co[:, 0] - cx) == (1 if side == "L" else -1))
+        pts = np.array([list(v) for v in d["pts"]])
+        ax = (pts[-1] - pts[0]) / np.linalg.norm(pts[-1] - pts[0])
+        rel = co[m] - pts[0]
+        s_h = rel @ ax / np.linalg.norm(pts[-1] - pts[0])
+        q = rel[s_h > 0.8]
+        q = q - np.outer(q @ ax, ax)
+        q = q - q.mean(0)
+        _, vec = np.linalg.eigh(np.cov(q.T))
+        n = vec[:, 1] if abs(vec[:, 0] @ ax) > 0.9 else vec[:, 0]  # thinnest, but not the arm axis itself
+        faces[side] = [round(float(x), 4) for x in (n if n[1] < 0 else -n)]  # toward the camera (-Y) at rest
+        print(f"arm_{side} hand face (rest): {faces[side]}")
+
+    # fists (motion spec: hands ball up when the arm is raised and bent): a shape key per hand, in the rest pose,
+    # so the armature bends the fist like the open hand; the mesh itself stays as it is
+    body.shape_key_add(name="Basis")
+    knuckle = 0.72
+    for side, d in arms.items():
+        m = np.nonzero(W[:, col[f"arm_{side}_1"]] > 0.5)[0]
+        h0, t0 = np.array(d["pts"][0]), np.array(d["pts"][-1])
+        length = float(np.linalg.norm(t0 - h0))
+        ax = (t0 - h0) / length
+        rel = co[m] - h0
+        s_h = rel @ ax / length
+        new = co.copy()
+        new[m] = fist_shape(rel, s_h, length, ax, np.array(faces[side]), knuckle=knuckle, turn_deg=240,
+                            press=0.35, narrow=0.85) + h0
+        moving = np.zeros(len(co), bool)
+        moving[m[s_h > knuckle - 0.04]] = True
+        new = smooth_shape(co, new, moving, radius=0.06 * length)
+        key = body.shape_key_add(name=f"fist_{side}", from_mix=False)
+        key.data.foreach_set("co", new.astype(np.float32).ravel())
+        key.value = 0.0  # open hands at rest
+        print(f"fist_{side}: {int(moving.sum())} points roll up")
+
+    # the body's outer shape (radius around its centre line by height and direction), so the copy can keep the
+    # arms outside it (motion spec: arms pass in front of the body), and each arm's thickness
+    nz, na = 32, 48
+    bz = np.clip((co[:, 2] / body_top * nz).astype(int), 0, nz - 1)
+    ang = np.arctan2(co[:, 1] - cy, co[:, 0] - cx)
+    ba = ((ang + np.pi) / (2 * np.pi) * na).astype(int) % na
+    rad = np.hypot(co[:, 0] - cx, co[:, 1] - cy)
+    shape = np.zeros((nz, na))
+    from scipy.spatial import cKDTree as _K
+    near_arm = _K(co[is_arm]).query(co, k=1)[0] < 0.04 * height  # stray arm-coloured points are not body
+    cell = bz * na + ba
+    for c_ in np.unique(cell[is_body & ~near_arm]):
+        r_ = rad[is_body & ~near_arm & (cell == c_)]
+        shape[c_ // na, c_ % na] = np.percentile(r_, 95) if len(r_) >= 5 else r_.max()
+    for i in range(nz):  # fill directions with no points from their neighbours
+        row = shape[i]
+        if (row > 0).any():
+            ok = np.nonzero(row > 0)[0]
+            shape[i] = np.interp(np.arange(na), ok, row[ok], period=na)
+    shape = np.maximum(shape, (np.roll(shape, 1, 1) + np.roll(shape, -1, 1)) / 2)  # never smaller than its sides
+    arm_radius = {}
+    for side, d in arms.items():
+        m = is_arm & (np.sign(co[:, 0] - cx) == (1 if side == "L" else -1))
+        pts = np.array([list(v) for v in d["pts"]])
+        ax = (pts[-1] - pts[0]) / np.linalg.norm(pts[-1] - pts[0])
+        rel = co[m] - pts[0]
+        sv = rel @ ax / np.linalg.norm(pts[-1] - pts[0])
+        q = rel[(sv > 0.2) & (sv < 0.7)]
+        q = q - np.outer(q @ ax, ax)
+        arm_radius[side] = round(float(np.percentile(np.linalg.norm(q - q.mean(0), axis=1), 75)), 3)
 
     groups = {n: body.vertex_groups.new(name=n) for n in deform}
     for j, n in enumerate(deform):
@@ -438,14 +361,6 @@ def main():
     body.parent = rig
     for pb in rig.pose.bones:
         pb.rotation_mode = "XYZ"
-
-    spec_path = a.spec or os.path.join(os.path.dirname(os.path.abspath(a.out)),
-                                       os.path.basename(a.out).split("_")[0] + "_motion_spec.json")
-    phys = {}
-    if os.path.exists(spec_path):
-        with open(spec_path) as f:
-            phys = json.load(f).get("physics", {}).get("hair", {})
-    add_hair_physics(body, rig, co, is_hair, W, deform, height, phys)
 
     # frame the character with room for raised arms (portrait, like a phone dance clip)
     cam = bpy.context.scene.camera
@@ -461,7 +376,7 @@ def main():
     info = {
         "name": os.path.basename(a.out),
         "kind": "3D model rigged from its motion spec (rig_soft.py): base-pivot body, sliding shoulder sockets, "
-                "3-bone B-bone arms, cloth-simulated hair; mesh unchanged, heat weights",
+                "one-curve B-bone arms that keep their width; hair moves with the head; mesh unchanged, heat weights",
         "height_m": round(height, 3),
         "root_bone": "root",
         "bones": [{"name": b.name, "parent": b.parent.name if b.parent else None, "deform": b.use_deform,
@@ -471,6 +386,16 @@ def main():
                    "matrix": [[round(b.matrix_local[i][j], 5) for j in range(3)] for i in range(3)]}
                   for b in arm_data.bones],
         "parts": {"arms": int(is_arm.sum()), "hair": int(is_hair.sum()), "body": int(is_body.sum())},
+        "hand_face": faces,
+        "body_shape": {"centre": [round(cx, 4), round(cy, 4)], "top": round(body_top, 4),
+                       "radius": [[round(float(x), 4) for x in row] for row in shape],
+                       "note": "outer radius of the body (no arms, no hair) by height bin (rows, base to top) and "
+                               "direction bin (columns, atan2(y, x) from -pi), at rest"},
+        "arm_radius": arm_radius,
+        "shape_keys": {"fist_L": "left hand balled up (0 open .. 1 fist)", "fist_R": "right hand balled up"},
+        # half-width of the bottom of the body: tilting on the base lifts it by about this x sin(tilt)
+        "base_radius_m": round(float(np.percentile(np.abs(co[is_body & (co[:, 2] < 0.08 * height)][:, :2]
+                                                          - np.array([cx, cy])), 95)), 3),
     }
     with open(os.path.abspath(a.out) + "_rig.json", "w") as f:
         json.dump(info, f, indent=1)
