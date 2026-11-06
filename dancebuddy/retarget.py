@@ -420,7 +420,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
     legs = translate_legs(kp, signals, leg_overrides(plan))
     height = float(rig.get("height_m", 1.4))
     knob = knob_curves(plan, score, n, fps)
-    emph = emphasis_curves(plan, n, fps, height)
+    from .moves import curves as move_curves, parse as parse_moves
+    mv = move_curves(parse_moves((plan or {}).get("moves", "")), n, fps)  # the agent's own moves
+    emph = emphasis_curves({"emphasis": [*(plan or {}).get("emphasis", []), *mv["emphasis"]]}, n, fps, height)
 
     # ---- body: turn, side tilt, forward lean of the dancer's torso, scaled to the character
     X, Z = T[:, :, 0], T[:, :, 2]
@@ -430,9 +432,9 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         z = Rot.from_euler("z", -turn[i], degrees=True).apply(Z[i])
         side.append(np.degrees(np.arctan2(z[0], z[2])))       # + = tilt toward the character's left (+X)
         lean.append(np.degrees(np.arctan2(-z[1], z[2])))      # + = forward (toward the camera, -Y)
-    side = smooth(np.array(side), 1.0) * knob["body"] + legs["tilt"] + emph["tilt"]
-    lean = soft_limit(smooth(np.array(lean), 1.0) * knob["body"], BODY["lean_max"])
-    turn = soft_limit(turn * knob["body"] + emph["twist"], BODY["turn_max"])
+    side = smooth(np.array(side), 1.0) * knob["body"] + legs["tilt"] + emph["tilt"] + mv["body"]["tilt"]
+    lean = soft_limit(smooth(np.array(lean), 1.0) * knob["body"] + mv["body"]["lean"], BODY["lean_max"])
+    turn = soft_limit(turn * knob["body"] + emph["twist"] + mv["body"]["turn"], BODY["turn_max"])
 
     # arm directions (image-based in the picture plane), in Blender axes
     aspect = image_aspect(kp)
@@ -477,8 +479,10 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         tilt_up = body[i].apply([0.0, 0.0, 1.0])
         roll = float(rig.get("base_radius_m", 0.0)) * np.sqrt(max(0.0, 1 - tilt_up[2] ** 2))
         ch["root.loc"].append([round(float(legs["shift"][i] * knob["travel"][i] * height), 4),
-                               round(float((legs["lift"][i] + emph["lift"][i]) * height + roll), 4), 0.0])
-    ch["root.squash"] = [round(float(x), 4) for x in np.clip(legs["squash"] + gv["pulse"] + emph["squash"], -0.1, 0.25)]
+                               round(float((legs["lift"][i] + emph["lift"][i] + mv["body"]["lift"][i]) * height + roll), 4),
+                               0.0])
+    ch["root.squash"] = [round(float(x), 4) for x in np.clip(legs["squash"] + gv["pulse"] + emph["squash"]
+                                                             + mv["body"]["squash"], -0.1, 0.25)]
     if "body_upper" in M:
         ch["body_upper.quat"] = [_local(M["body_upper"], ident, upper_bend[i]) for i in range(n)]
     if "body_lower" in M:
@@ -561,6 +565,10 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
         rest_dir = _norm(np.asarray(M[f"{name}__tail"], float) - np.asarray(M[f"{name}__head"], float))
         raw = [(match_rest(T[i].T @ upper[side_name][i], rest_dir),
                 match_rest(T[i].T @ fore[side_name][max(0, i - lag_f)], rest_dir)) for i in range(n)]
+        am = mv["arm"][side_name]  # the agent's own arm moves take over from the copy where they are set
+        raw = [(_norm((1 - am["w"][i]) * u + am["w"][i] * am["u"][i]),
+                _norm((1 - am["w"][i]) * f + am["w"][i] * am["f"][i])) if am["w"][i] > 0 else (u, f)
+               for i, (u, f) in enumerate(raw)]
         if shape is not None:
             fixed = np.array([place_arm(u, f, float(knob["arms"][i]))[5:] for i, (u, f) in enumerate(raw)])
             moved = np.degrees(np.arccos(np.clip((fixed[:, 0] * _norm(np.array([r[0] for r in raw]))).sum(1), -1, 1)))
@@ -580,6 +588,8 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
             ch[f"{name}.bbone"].append(curve)
             ch[f"{name}.scale"].append([1.0, chord, 1.0])
             fist[i] = fist_amount(u, f)
+            if not np.isnan(am["fist"][i]):
+                fist[i] = am["fist"][i]
         if f"fist_{side_name}" in rig.get("shape_keys", {}):
             ch[f"{name}.fist"] = [round(float(x), 3) for x in np.clip(smooth(fist, 0.05 * fps), 0, 1)]
 

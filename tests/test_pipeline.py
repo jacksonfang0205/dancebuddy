@@ -304,3 +304,19 @@ def test_inspect_picks_a_units_key_frames():
     f = pick_frames(score, 91, unit_id=1)
     assert f[0] == 41 and f[-1] == 90 and 60 in f and 70 in f and len(f) <= 8
     assert pick_frames(score, 91, frames=[5, 200, 5, 3]) == [3, 5]
+
+
+def test_moves_parse_safely_and_take_over_the_arm():
+    import numpy as np
+    from dancebuddy.moves import MoveError, curves, parse
+    for bad in ("import os", "open('x')", "arm('L', 1.0, raise_=__import__('os'))", "arm('L', 1.0, pose='fly')",
+                "arm('X', 1.0, raise_=90)"):
+        with pytest.raises(MoveError):
+            parse(bad)
+    mv = parse('arm("both", 1.0, pose="overhead", hold=0.2)  # hands up\nbody(2.0, tilt=-10)\nhit(1.0, "squash")')
+    c = curves(mv, 90, 30.0)
+    w = c["arm"]["L"]["w"]
+    assert w[30] == 1.0 and w[0] == 0.0 and w[80] == 0.0       # in at 1 s, back to the copy later
+    assert c["arm"]["L"]["u"][30][2] > 0.9                      # overhead: straight up
+    assert c["arm"]["L"]["fist"][30] == 1.0
+    assert abs(c["body"]["tilt"][60] + 10) < 1e-6 and c["emphasis"][0]["frame"] == 30

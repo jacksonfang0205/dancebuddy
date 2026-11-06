@@ -20,6 +20,7 @@ from . import llm
 from .copy_checks import rank, run_copy_checks
 from .copy_plan import EMPHASIS_MOVES, KNOBS, PLAN_SCHEMA, default_plan
 from .inspect_tools import check_arm_geometry, look_at_frames, pick_frames
+from . import moves as moves_mod
 from .retarget import retarget
 
 SYSTEM = """You are DanceBuddy, an animation agent. A non-humanoid plush character copies a human dancer. A
@@ -47,8 +48,11 @@ How to work:
    - look_at_frames (about half a minute; limited number of looks): renders chosen frames small next to the
      dancer and returns a reviewer's notes per frame: does the character show the move, what looks wrong, a fix.
      Look at units with big arm moves, turns or accents, and at units the checks flagged.
-   Turn what you learn into knob changes (arms, body, emphasis) and submit again; note that some problems (e.g. an
-   arm shape) may not be fixable with the knobs: say so in your summary instead of chasing them.
+   Turn what you learn into changes and submit again. Knobs scale whole units; for a particular moment write a
+   move in the plan's `moves` (code lines, see get_plan_format): e.g. arm("both", 3.5, pose="overhead") when the
+   hands should go above the head, arm("both", 0.7, pose="hands_together_chest"), body(2.7, tilt=-12). A move
+   takes over from the copy around its time and blends back, so write moves only where the copy does not read,
+   time them on the dancer's moment (seconds), and look again to confirm they worked.
 6. When the checks pass and what you looked at is fine, or you are out of attempts, reply with a short summary of
    your decisions, what you checked and what is still wrong, and stop."""
 
@@ -126,6 +130,9 @@ def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | 
                                "legs": "per leg event index: skip (bool) and size (x default translation, 0.3-1.6)",
                                "emphasis_moves": {k: v[0] for k, v in EMPHASIS_MOVES.items()},
                                "emphasis_size": "0.1-1.0 of the move's full size",
+                               "moves": {"how": moves_mod.__doc__.split("\n\n", 1)[1],
+                                         "poses": {k: dict(zip(("raise_", "forward", "bend", "fist"), v))
+                                                   for k, v in moves_mod.POSES.items()}},
                                "default_plan": default_plan(score)})
         if name == "submit_copy_plan":
             if len(attempts) >= max_attempts:
@@ -133,6 +140,10 @@ def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | 
             errs = [e.message for e in validator.iter_errors(args)]
             if errs:
                 return json.dumps({"error": "plan does not match the schema", "details": errs[:5]})
+            try:
+                moves_mod.parse(args.get("moves", ""))
+            except moves_mod.MoveError as e:
+                return json.dumps({"error": "moves do not parse", "details": str(e)})
             curves = retarget(kp, rig, signals=signals, beats=score["beats"], plan=args, score=score)
             res = run_copy_checks(curves, score, rig, spec)
             k = len(attempts) + 1

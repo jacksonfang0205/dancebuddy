@@ -9,6 +9,7 @@ is used, how each leg event is translated, and which accents get an extra emphas
               travel (x the slide across the floor)
   legs[]      per leg event (index from get_leg_events): skip it, or scale its translation
   emphasis[]  an extra move on an accent frame: squash, hop, nod, tilt_left, tilt_right, twist
+  moves       the agent's own moves, as lines of code (moves.py): a pose for an arm or the body at a time
 """
 
 from __future__ import annotations
@@ -60,6 +61,8 @@ PLAN_SCHEMA = {
                 "size": {"type": "number", "minimum": 0.1, "maximum": 1.0, "description": "fraction of the move's full size"},
             },
             "required": ["frame", "move"]}},
+        "moves": {"type": "string", "description": "the agent's own moves: lines of arm(...), body(...), hit(...) "
+                  "calls (see get_plan_format); they take over from the copy around their times"},
         "summary": {"type": "string"},
     },
     "required": ["units"],
