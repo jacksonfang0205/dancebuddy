@@ -5,18 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from dancebuddy import agent, llm
-from dancebuddy.baseline import pose_copy
-from dancebuddy.checks import metrics, run_checks
-from dancebuddy.perception import build_dance_score, load_keypoints
-from dancebuddy.primitives import compile_plan
-from dancebuddy.synth import make
+from dancebuddy import llm
+from dancebuddy.perception.video import build_dance_score, load_keypoints
+from evaluation.baselines.planner import agent
+from evaluation.baselines.planner.checks import metrics, run_checks
+from evaluation.baselines.planner.primitives import compile_plan
+from evaluation.baselines.pose_copy import pose_copy
+from evaluation.data.synth import make
 
 ROOT = Path(__file__).resolve().parent.parent
 CARD = {"name": "capsule", "root_bone": "root",
         "bones": [{"name": n} for n in ("root", "lower", "upper", "top")],
         "limits": {"lean": 35, "twist": 45, "sway": 35, "lift": 0.35, "squash": 0.35}}
-PLAN = json.loads((ROOT / "examples" / "handwritten_plan_synth.json").read_text())
+PLAN = json.loads((ROOT / "evaluation" / "baselines" / "planner" / "examples" / "handwritten_plan_synth.json").read_text())
 
 
 @pytest.fixture(scope="module")
@@ -70,15 +71,15 @@ def test_agent_revises_after_failed_check(synth, tmp_path, monkeypatch):
 
 
 def test_cut_out_finds_the_character_on_a_plain_background(tmp_path):
-    from dancebuddy.puppet import cut_out
-    info = cut_out(ROOT / "examples" / "sample_character.png", tmp_path / "char")
+    from dancebuddy.characters.puppet import cut_out
+    info = cut_out(ROOT / "assets" / "sample_character.png", tmp_path / "char")
     filled = sum(map(sum, info["grid"])) / (info["rows"] * info["cols"])
     assert 0.5 < filled < 0.95 and info["height_px"] > info["width_px"]
 
 
 def test_follow_tracks_the_dancer_signal(synth):
     import numpy as np
-    from dancebuddy.signals import normalized
+    from dancebuddy.perception.signals import normalized
 
     _, score = synth
     unit = score["units"][2]  # torso-twist section
@@ -123,7 +124,7 @@ def test_get_dance_signals_tool(synth, tmp_path, monkeypatch):
 
 def test_pixel_metric_finds_hits_in_rendered_frames(synth):
     import numpy as np
-    from dancebuddy.video_metrics import motion_from_frames, pixel_metrics
+    from evaluation.metrics.pixels import motion_from_frames, pixel_metrics
 
     _, score = synth
     n, acc = score["n_frames"], score["accents"]
@@ -151,7 +152,7 @@ def test_pixel_metric_finds_hits_in_rendered_frames(synth):
 def test_follow_plan_keeps_hits_in_other_units(synth):
     # continuous follow motion in units 2-3 must not hide the hops of units 4-5
     _, score = synth
-    plan = json.loads((ROOT / "examples" / "handwritten_plan_synth_follow.json").read_text())
+    plan = json.loads((ROOT / "evaluation" / "baselines" / "planner" / "examples" / "handwritten_plan_synth_follow.json").read_text())
     res = run_checks(compile_plan(plan, score, CARD), score, CARD)
     assert res["passed"], res["checks"]
     assert not [u for u in res["units"] if u["unit_id"] in (4, 5)]
@@ -169,8 +170,8 @@ def test_copy_raises_the_arm_the_dancer_raises(synth):
     import numpy as np
     from scipy.spatial.transform import Rotation as Rot
 
-    from dancebuddy.perception import L_EL, L_SH, L_WR
-    from dancebuddy.retarget import retarget
+    from dancebuddy.perception.video import L_EL, L_SH, L_WR
+    from dancebuddy.executor.retarget import retarget
 
     kp, _ = synth
     kp = {**kp, "world": kp["world"].copy(), "image": kp["image"].copy()}
@@ -203,8 +204,8 @@ def test_copy_raises_the_arm_the_dancer_raises(synth):
 
 def test_legs_become_hops_leans_and_squash(synth):
     import numpy as np
-    from dancebuddy.legs import translate
-    from dancebuddy.signals import compute_signals
+    from dancebuddy.executor.legs import translate
+    from dancebuddy.perception.signals import compute_signals
 
     kp, _ = synth
     n = len(kp["world"])
@@ -222,8 +223,8 @@ def test_legs_become_hops_leans_and_squash(synth):
 
 def test_default_copy_plan_is_the_plain_copy(synth):
     import numpy as np
-    from dancebuddy.copy_plan import default_plan
-    from dancebuddy.retarget import retarget
+    from dancebuddy.actions.plan import default_plan
+    from dancebuddy.executor.retarget import retarget
 
     kp, score = synth
     rig = json.loads((ROOT / "assets" / "plush_soft_rig.json").read_text())
@@ -232,9 +233,9 @@ def test_default_copy_plan_is_the_plain_copy(synth):
     assert all(np.allclose(a[k], b[k]) for k in a)
 
 
-def test_copy_agent_revises_and_keeps_the_best(synth, tmp_path, monkeypatch):
-    from dancebuddy.copy_agent import run_copy_agent
-    from dancebuddy.copy_plan import default_plan
+def test_agent_revises_and_keeps_the_best(synth, tmp_path, monkeypatch):
+    from dancebuddy.planner.loop import run_agent
+    from dancebuddy.actions.plan import default_plan
 
     kp, score = synth
     rig = json.loads((ROOT / "assets" / "plush_soft_rig.json").read_text())
@@ -247,8 +248,8 @@ def test_copy_agent_revises_and_keeps_the_best(synth, tmp_path, monkeypatch):
     script = iter([
         {"text": "", "tool_calls": [{"id": "a", "name": "get_dance_score", "arguments": {}},
                                     {"id": "b", "name": "get_leg_events", "arguments": {}}]},
-        {"text": "", "tool_calls": [{"id": "c", "name": "submit_copy_plan", "arguments": first}]},
-        {"text": "", "tool_calls": [{"id": "d", "name": "submit_copy_plan", "arguments": second}]},
+        {"text": "", "tool_calls": [{"id": "c", "name": "submit_plan", "arguments": first}]},
+        {"text": "", "tool_calls": [{"id": "d", "name": "submit_plan", "arguments": second}]},
         {"text": "done", "tool_calls": []},
     ])
 
@@ -257,7 +258,7 @@ def test_copy_agent_revises_and_keeps_the_best(synth, tmp_path, monkeypatch):
         return next(script)
 
     monkeypatch.setattr(llm, "call", fake)
-    summary = run_copy_agent(kp, score, rig, spec, tmp_path)
+    summary = run_agent(kp, score, rig, spec, tmp_path)
     assert summary["attempts"] == 2
     report = json.loads(seen[2]["content"])          # what the model saw after its first plan
     assert "checks" in report and "units" in report
@@ -267,7 +268,7 @@ def test_copy_agent_revises_and_keeps_the_best(synth, tmp_path, monkeypatch):
 def test_hands_ball_up_for_raised_bent_arms():
     """Motion spec: fists for raised, bent arms; open hands when the arm hangs, reaches out or lies across."""
     import numpy as np
-    from dancebuddy.retarget import elbow_amount, fist_amount
+    from dancebuddy.executor.retarget import elbow_amount, fist_amount
     out, up, down, across = map(np.array, ((1.0, 0, 0), (0, 0, 1.0), (0, 0, -1.0), (-1.0, 0, 0)))
     assert fist_amount(out, up) > 0.95                 # upper arm out, forearm up: a soft elbow and a fist
     assert elbow_amount(out, up) == 1.0
@@ -282,7 +283,7 @@ def test_soft_arm_is_a_round_arc_that_keeps_its_length():
     """An arm bends as one circular arc (no crease) and its arc keeps the arm's length."""
     import numpy as np
     from scipy.spatial.transform import Rotation as Rot
-    from dancebuddy.retarget import arm_centre_line, arm_pose
+    from dancebuddy.executor.retarget import arm_centre_line, arm_pose
     M = {"arm_L_1": np.eye(3), "arm_L_1__head": [0.0, 0.0, 0.0], "arm_L_1__tail": [0.0, 0.5, 0.0]}
     info = {}
     q, curve, chord = arm_pose(M, "arm_L_1", np.array([1.0, 0, 0]), np.array([0, 0, 1.0]), 1, info=info)
@@ -298,7 +299,7 @@ def test_soft_arm_is_a_round_arc_that_keeps_its_length():
 
 
 def test_inspect_picks_a_units_key_frames():
-    from dancebuddy.inspect_tools import pick_frames
+    from dancebuddy.critics.inspect import pick_frames
     score = {"units": [{"id": 0, "start": 0, "end": 40, "accents": [10], "beats": [5, 15, 25, 35]},
                        {"id": 1, "start": 41, "end": 90, "accents": [60, 70], "beats": [45, 55, 65, 75, 85]}]}
     f = pick_frames(score, 91, unit_id=1)
@@ -308,7 +309,7 @@ def test_inspect_picks_a_units_key_frames():
 
 def test_moves_parse_safely_and_take_over_the_arm():
     import numpy as np
-    from dancebuddy.moves import MoveError, curves, parse
+    from dancebuddy.actions.moves import MoveError, curves, parse
     for bad in ("import os", "open('x')", "arm('L', 1.0, raise_=__import__('os'))", "arm('L', 1.0, pose='fly')",
                 "arm('X', 1.0, raise_=90)"):
         with pytest.raises(MoveError):
@@ -325,10 +326,33 @@ def test_moves_parse_safely_and_take_over_the_arm():
 def test_command_line_options():
     import subprocess
     import sys
-    out = subprocess.run([sys.executable, "-m", "dancebuddy", "copy-agent", "--help"], capture_output=True, text=True,
-                         cwd=ROOT).stdout
-    assert "--attempts" in out and "--looks" in out
-    out = subprocess.run([sys.executable, "-m", "dancebuddy", "--help"], capture_output=True, text=True, cwd=ROOT).stdout
-    for cmd in ("perceive", "copy", "copy-agent", "render", "compose", "demo",              # the MVP
-                "synth", "character", "puppet", "card", "agent", "baseline", "apply", "eval", "demo-v1"):  # first prototype
-        assert cmd in out
+
+    def help_of(*args):
+        return subprocess.run([sys.executable, "-m", *args, "--help"], capture_output=True, text=True, cwd=ROOT).stdout
+
+    out = help_of("dancebuddy", "agent")
+    assert all(o in out for o in ("--attempts", "--looks", "--no-looks", "--no-geometry", "--no-moves"))
+    out = help_of("dancebuddy")
+    assert all(c in out for c in ("perceive", "agent", "replay", "render", "compose", "demo", "character"))
+    assert all(c in help_of("dancebuddy", "character") for c in ("model", "rig", "capsule", "puppet", "card"))
+    out = help_of("evaluation")
+    assert all(c in out for c in ("prepare", "run", "metrics", "render", "apply"))
+    assert all(s in help_of("evaluation", "run") for s in ("pose_copy", "plain_copy", "planner", "agent_no_looks"))
+
+
+def test_metrics_are_the_same_for_every_system():
+    """The evaluation metrics read only the measured motion and the dance: a character that stops on every accent
+    scores full accent recall whatever system made it."""
+    import numpy as np
+    from evaluation import metrics as M
+    fps, n = 30.0, 300
+    accents = list(range(30, 280, 30))
+    t = np.arange(n)
+    energy = np.ones(n)
+    for a in accents:
+        energy[max(0, a - 6):a] = 3.0      # fast, then a stop on the accent
+        energy[a:a + 4] = 0.05
+    measure = {"every": 1, "rows": [{"frame": int(i), "energy": float(e)} for i, e in zip(t, energy)]}
+    score = {"n_frames": n, "fps": fps, "accents": accents, "beats": accents, "motion_energy": energy.tolist()}
+    r = M.rhythm(measure, score)
+    assert r["accent_recall"] >= 0.8 and r["beat_precision"] >= 0.8 and r["motion_corr"] > 0.9

@@ -1,7 +1,7 @@
 """Turn a character picture into a rigged 2D puppet (a flat cut-out mesh with a
 4-bone spine), so the same plans and renderer work on any drawn character.
 
-Run `python -m dancebuddy puppet PICTURE assets/<name>` rather than this file
+Run `python -m dancebuddy character puppet PICTURE assets/<name>` rather than this file
 directly: that first cuts the character out (dancebuddy/puppet.py), then runs:
   blender -b -P blender/make_puppet.py -- --out assets/<name>
 

@@ -1,0 +1,9 @@
+{
+ "about": "Characters the systems can dance with, by prefix (see dancebuddy/knowledge/character.py). The agent needs a soft-rigged character with a motion spec; the baselines run on any rigged character.",
+ "default": "plush",
+ "characters": [
+  {"id": "plush", "prefix": "assets/plush_soft", "kind": "3D model (generated), soft rig: spine, sliding shoulders, one bendable bone per arm, fists", "motion_spec": "assets/plush_motion_spec.json"},
+  {"id": "capsule", "prefix": "assets/capsule", "kind": "built-in 3D capsule, 4-bone spine (first prototype)"},
+  {"id": "sample_character", "prefix": "assets/sample_character", "kind": "a picture as a 2D cut-out puppet, 4-bone spine (first prototype); picture: assets/sample_character.png"}
+ ]
+}

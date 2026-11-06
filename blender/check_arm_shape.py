@@ -12,7 +12,6 @@ For sampled frames of a curves.json, pose the rig and measure per arm:
 
 import argparse
 import json
-import math
 import os
 import sys
 
@@ -20,8 +19,9 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
-BBONE = ("bbone_curveinx", "bbone_curveinz", "bbone_curveoutx", "bbone_curveoutz", "bbone_rollin", "bbone_rollout",
-         "bbone_easein", "bbone_easeout")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pose_utils import pose_frame  # noqa: E402
+
 
 
 def parse():
@@ -35,37 +35,7 @@ def parse():
 
 
 def pose(rig, body, curves, f):
-    keys = body.data.shape_keys
-    if keys:
-        for kb in keys.key_blocks[1:]:
-            kb.value = 0.0
-    for pb in rig.pose.bones:
-        pb.rotation_mode = "QUATERNION"
-        pb.rotation_quaternion, pb.location, pb.scale = (1, 0, 0, 0), (0, 0, 0), (1, 1, 1)
-        for prop in BBONE:
-            setattr(pb, prop, 0.0)
-    for name, vals in curves["channels"].items():
-        bone, ch = name.split(".", 1)
-        if bone not in rig.pose.bones:
-            continue
-        pb, v = rig.pose.bones[bone], vals[f]
-        if ch == "quat":
-            pb.rotation_quaternion = v
-        elif ch == "loc":
-            pb.location = v
-        elif ch == "scale":
-            pb.scale = v
-        elif ch == "bbone":
-            for prop, x in zip(BBONE, v):
-                setattr(pb, prop, x)
-        elif ch == "squash":
-            s = max(0.3, 1 - v)
-            pb.scale = (1 / math.sqrt(s), s, 1 / math.sqrt(s))
-        elif ch == "fist" and keys:
-            k = f"fist_{bone.split('_')[1]}"
-            if k in keys.key_blocks:
-                keys.key_blocks[k].value = v
-
+    pose_frame(rig, body, curves["channels"], f)
 
 def main():
     a = parse()

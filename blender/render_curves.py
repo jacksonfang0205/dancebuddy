@@ -3,31 +3,20 @@
   blender -b -P blender/render_curves.py -- --blend assets/plush_soft.blend --curves runs/x/curves.json --frames runs/x/frames
   python blender/render_curves.py --blend ... (if the bpy module is installed)
 
-Channel -> pose bone mapping (bones point up, so bone-local Y is the bone axis):
-  lean  -> rotation X      twist -> rotation Y      sway -> rotation Z
-  root.lift -> location Y (along the root bone = world up)
-  root.squash -> scale (Y shrinks, X/Z grow to keep volume)
-  <bone>.bbone -> B-bone curve [curve in x, in z, out x, out z, roll in, roll out] (a soft limb bending)
-  <bone>.loc -> head offset [x, y, z] in the bone's rest frame
-  <bone>.stretch -> length factor along the bone (thickness mostly kept)
-  <arm>.fist -> shape key fist_<side> of the Body (0 open hand .. 1 fist)
-  <bone>.quat -> rotation quaternion [w, x, y, z] in the bone's rest frame (overrides the Euler channels)
+The channels are applied by pose_utils.pose_frame (see there for what each one does).
 """
 
 import argparse
 import json
-import math
 import os
 import sys
 
 import bpy
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pose_utils import BBONE_PROPS, pose_frame  # noqa: E402
 from scene_utils import setup_render  # noqa: E402
 
-AXIS = {"lean": 0, "twist": 1, "sway": 2}
-BBONE_PROPS = ("bbone_curveinx", "bbone_curveinz", "bbone_curveoutx", "bbone_curveoutz", "bbone_rollin", "bbone_rollout",
-               "bbone_easein", "bbone_easeout")
 
 
 def parse():
@@ -63,47 +52,12 @@ def main():
         pb.rotation_mode = "XYZ"
 
     keys = bpy.data.objects["Body"].data.shape_keys if "Body" in bpy.data.objects else None
+    body = bpy.data.objects.get("Body")
     for f in range(n):
-        for pb in pbones:
-            pb.rotation_euler = (0, 0, 0)
-            pb.rotation_quaternion = (1, 0, 0, 0)
-            pb.location = (0, 0, 0)
-            for prop in BBONE_PROPS:
-                setattr(pb, prop, 0.0)
-            pb.scale = (1, 1, 1)
-        for name, vals in curves["channels"].items():
-            bone, ch = name.split(".", 1)
-            if bone not in pbones:
-                continue
-            pb = pbones[bone]
-            v = vals[f]
-            if ch == "quat":  # full rotation (w, x, y, z) in the bone's rest frame, e.g. from retarget.py
-                pb.rotation_mode = "QUATERNION"
-                pb.rotation_quaternion = v
-            elif ch in AXIS:
-                r = list(pb.rotation_euler)
-                r[AXIS[ch]] = math.radians(v)
-                pb.rotation_euler = r
-            elif ch == "lift":
-                pb.location = (0, v, 0)
-            elif ch == "bbone":  # B-bone curve: [curve in x, in z, out x, out z, roll in, roll out, ease in, ease out]
-                for prop, x in zip(BBONE_PROPS, v):
-                    setattr(pb, prop, x)
-            elif ch == "loc":  # move a bone's head, [x, y, z] in its rest frame (e.g. a shoulder sliding up)
-                pb.location = v
-            elif ch == "scale":  # [x, y, z] in the bone's frame (e.g. a soft body bulging)
-                pb.scale = v
-            elif ch == "stretch":  # lengthen a bone along its axis, keeping its volume (soft limbs)
-                st = max(0.3, v)
-                pb.scale = (st ** -0.2, st, st ** -0.2)  # plush arms keep most of their thickness
-            elif ch == "squash":
-                s = max(0.3, 1 - v)
-                pb.scale = (1 / math.sqrt(s), s, 1 / math.sqrt(s))
-            elif ch == "fist":  # a hand balling up: shape key fist_L / fist_R
-                key = f"fist_{bone.split('_')[1]}"
-                if keys is not None and key in keys.key_blocks:
-                    keys.key_blocks[key].value = float(v)
-                    keys.key_blocks[key].keyframe_insert("value", frame=f + 1)
+        pose_frame(rig, body, curves["channels"], f)
+        if keys is not None:
+            for kb in keys.key_blocks[1:]:
+                kb.keyframe_insert("value", frame=f + 1)
         for pb in pbones:
             pb.keyframe_insert("rotation_quaternion" if pb.rotation_mode == "QUATERNION" else "rotation_euler",
                                frame=f + 1)

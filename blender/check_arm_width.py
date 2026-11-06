@@ -9,15 +9,15 @@ with the rest pose. Prints the worst change per frame and an overall verdict.
 
 import argparse
 import json
-import math
 import os
 import sys
 
 import bpy
 import numpy as np
 
-BBONE = ("bbone_curveinx", "bbone_curveinz", "bbone_curveoutx", "bbone_curveoutz", "bbone_rollin", "bbone_rollout",
-         "bbone_easein", "bbone_easeout")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pose_utils import pose_frame  # noqa: E402
+
 
 
 def parse():
@@ -31,27 +31,7 @@ def parse():
 
 
 def pose(rig, curves, f):
-    for pb in rig.pose.bones:
-        pb.rotation_mode = "QUATERNION"
-        pb.rotation_quaternion, pb.location, pb.scale = (1, 0, 0, 0), (0, 0, 0), (1, 1, 1)
-        for prop in BBONE:
-            setattr(pb, prop, 0.0)
-    for name, vals in curves["channels"].items():
-        bone, ch = name.split(".", 1)
-        if bone not in rig.pose.bones:
-            continue
-        pb, v = rig.pose.bones[bone], vals[f]
-        if ch == "quat":
-            pb.rotation_quaternion = v
-        elif ch == "loc":
-            pb.location = v
-        elif ch == "bbone":
-            for prop, x in zip(BBONE, v):
-                setattr(pb, prop, x)
-        elif ch == "squash":
-            s = max(0.3, 1 - v)
-            pb.scale = (1 / math.sqrt(s), s, 1 / math.sqrt(s))
-
+    pose_frame(rig, bpy.data.objects.get("Body"), curves["channels"], f)
 
 def main():
     a = parse()
@@ -71,7 +51,8 @@ def main():
                         if sum(g.weight for g in v.groups if groups[g.group] in chain) > 0.99])
         h, t = np.array(rig.data.bones[chain[0]].head_local), np.array(rig.data.bones[chain[-1]].tail_local)
         s = (rest[idx] - h) @ (t - h) / np.dot(t - h, t - h)
-        bins = [idx[(s >= lo) & (s < lo + 0.1)] for lo in np.arange(0.15, 0.95, 0.1)]
+        # the arm itself, not the hand (the fist shape narrows it from about 0.57 of the length)
+        bins = [idx[(s >= lo) & (s < lo + 0.1)] for lo in np.arange(0.15, 0.55, 0.1)]
         bins = [x for x in bins if len(x) > 20]
         spread0 = [np.sqrt(((rest[x] - rest[x].mean(0)) ** 2).sum(1).mean()) for x in bins]
         arms[side] = (bins, spread0)
