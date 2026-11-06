@@ -89,19 +89,6 @@ The full workflow is also available as one command:
 uv run python -m dancebuddy demo path/to/dance.mp4 runs/another_dance --preview
 ```
 
-### Inspect and replay a run
-
-The agent writes to `runs/my_dance/agent/`: `summary.json` (attempts, whether its checks passed, LLM calls, cost), `trace.json` (every message and tool call), the best `plan.json`, `curves.json` and `checks.json`, and one `attempt_N/` folder per submitted plan with its rendered looks (`look_N/look.png`).
-
-Carry out a saved plan again without the LLM:
-
-```bash
-uv run python -m dancebuddy replay runs/my_dance runs/my_dance/agent/plan.json --name replay
-uv run python -m dancebuddy render runs/my_dance --systems replay --preview
-```
-
-`agent --no-looks`, `--no-geometry` and `--no-moves` switch a capability off; `--name` sets the output folder and `--char assets/<name>` another rigged character.
-
 ## 3. Reproduce the evaluation
 
 Systems: `pose_copy`, `plain_copy`, `planner` (baselines), `agent`, `agent_no_looks`, `agent_no_moves`,
