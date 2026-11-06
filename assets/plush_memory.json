@@ -1,0 +1,114 @@
+{
+ "lessons": [
+  {
+   "kind": "works",
+   "text": "Moderate arm scaling (~1.0–1.05), reduced travel, and timed short body squashes or hops kept movement complete, within range, and quantitatively framed; simple side-arm accents read well.",
+   "count": 1,
+   "last": 1793937478.90495,
+   "runs": [
+    "agent_mem2"
+   ]
+  },
+  {
+   "kind": "fails",
+   "text": "Overhead arm overrides at raise_=180 still rendered the mittens beside the hair, not above it; body and hit overrides failed to register several overhead and crossing accents.",
+   "count": 1,
+   "last": 1793937478.90495,
+   "runs": [
+    "agent_mem2"
+   ]
+  },
+  {
+   "kind": "fails",
+   "text": "Low inward arm poses can bury substantial portions of both tubes inside the body, while across-body poses place hands over the face instead of at the belly or chest; inspect geometry, not just quantitative checks.",
+   "count": 1,
+   "last": 1793937478.90495,
+   "runs": [
+    "agent_mem2"
+   ]
+  },
+  {
+   "kind": "tip",
+   "text": "The framing check reported no out-of-picture frames even when visual inspection showed clipped mitten tips; inspect wide reaches visually and limit travel or draw reaching arms inward.",
+   "count": 1,
+   "last": 1793937478.90495,
+   "runs": [
+    "agent_mem2"
+   ]
+  },
+  {
+   "kind": "works",
+   "text": "Use explicit per-side arm poses for strongly asymmetric accents; mirrored side guesses give the wrong reaching arm even when overall motion checks pass.",
+   "count": 1,
+   "last": 1793937329.196478,
+   "runs": [
+    "agent_mem1"
+   ]
+  },
+  {
+   "kind": "works",
+   "text": "Strong, short squash or hop body moves synchronized with accents can raise hit detection while preserving range and framing; both-arm overhead and hands-together-chest poses make key silhouettes clearer.",
+   "count": 1,
+   "last": 1793937329.196478,
+   "runs": [
+    "agent_mem1"
+   ]
+  },
+  {
+   "kind": "fails",
+   "text": "Hand-together and across-chest overrides can still leave the mittens apart or bury sections of the arm in the body; geometry checks reported up to 11 cm of arm penetration on these poses.",
+   "count": 1,
+   "last": 1793937329.196478,
+   "runs": [
+    "agent_mem1"
+   ]
+  },
+  {
+   "kind": "tip",
+   "text": "The quantitative in-frame check can pass even when rendered hands touch or leave the picture edge; inspect outward reaches visually, and verify overhead hands clear the hair.",
+   "count": 1,
+   "last": 1793937329.196478,
+   "runs": [
+    "agent_mem1"
+   ]
+  }
+ ],
+ "runs": [
+  {
+   "run": "runs/user1/agent_mem1",
+   "passed": true,
+   "accents": 0.667,
+   "attempts": 4,
+   "looks": 3,
+   "moves_written": 20,
+   "moves": "arm(\"L\", 0.47, raise_=35, forward=10, bend=5, fist=False, hold=0.12, attack=0.08, release=0.13)\narm(\"R\", 0.47, raise_=27, forward=110, bend=25, fist=False, hold=0.12, attack=0.08, release=0.13)\narm(\"both\", 0.70, raise_=24, forward=130, bend=32, fist=False, hold=0.15, attack=0.09, release=0.16)\narm(\"L\", 2.27, pose=\"overhead\", hold=0.15, attack=0.09, release=0.14)\narm(\"R\", 2.27, pose=\"hanging\", hold=0.15, attack=0.09, release=0.14)\narm(\"R\", 2.73, raise_=35, forward=12, bend=10, fist=False, hold=0.14, attack=0.10, release=0.17)\narm(\"L\", 3.10, pose=\"out_side\", hold=0.16, attack=0.09, release=0.15)\narm(\"R\", 3.10, pose=\"across_chest\", hold=0.16, attack=0.09, release=0.15)\narm(\"both\", 3.50, pose=\"overhead\", hold=0.29, attack=0.09, release=0.19)\narm(\"both\", 4.57, raise_=37, forward=12, bend=10, fist=False, hold=0.12, attack=0.11, release=0.15)\narm(\"both\", 5.13, pose=\"hands_together_chest\", hold=0.19, attack=0.11, release=0.17)\narm(\"both\", 6.00, pose=\"hands_together_chest\", hold=0.17, attack=0.13, release=0.20)\nbody(0.47, tilt=9, squash=0.13, hold=0.06, attack=0.08, release=0.10)\nbody(0.70, tilt=-19, squash=0.24, hold=0.06, attack=0.08, release=0.12)\nbody(2.27, lift=0.18, hold=0.07, attack=0.08, release=0.12)\nbody(3.10, squash=0.24, tilt=12, hold=0.06, attack=0.08, release=0.12)\nbody(3.50, lift=0.17, hold=0.07, attack=0.08, release=0.11)\nbody(3.70, squash=0.21, hold=0.08, attack=0.08, release=0.13)\nbody(5.13, squash=0.22, hold=0.08, attack=0.10, release=0.15)\nbody(6.00, tilt=-14, squash=0.19, hold=0.08, attack=0.09, release=0.13)",
+   "reviewer": "The arm accents are recognizable, especially the double-arm rise, but hand placement and height often miss the dancer’s hits. Add the matching body leans while keeping the plush body smooth and the arms independent of its outline.",
+   "wrote_lessons": true
+  },
+  {
+   "run": "runs/user1/agent_mem2",
+   "passed": false,
+   "accents": 0.556,
+   "attempts": 4,
+   "looks": 3,
+   "moves_written": 16,
+   "moves": "arm(\"both\", 0.47, raise_=3, forward=5, bend=0, fist=False, hold=0.10, attack=0.07, release=0.12)\nbody(0.47, squash=0.19, hold=0.08, attack=0.08, release=0.12)\narm(\"both\", 0.70, raise_=32, forward=115, bend=8, fist=False, hold=0.12, attack=0.10, release=0.17)\nbody(0.70, tilt=10, squash=0.13, hold=0.1, attack=0.10, release=0.16)\narm(\"R\", 2.27, raise_=16, forward=25, bend=5, hold=0.14, attack=0.1, release=0.19)\narm(\"R\", 3.10, pose=\"hanging\", hold=0.14, attack=0.10, release=0.17)\narm(\"L\", 3.10, pose=\"raised_bent\", hold=0.15, attack=0.10, release=0.18)\nbody(3.10, squash=0.16, hold=0.09, attack=0.09, release=0.12)\narm(\"both\", 3.50, raise_=180, forward=0, bend=0, fist=True, hold=0.27, attack=0.12, release=0.18)\nbody(3.50, lift=0.09, hold=0.15, attack=0.10, release=0.16)\narm(\"both\", 3.70, raise_=180, forward=0, bend=0, fist=True, hold=0.19, attack=0.10, release=0.16)\nbody(4.57, lift=0.10, squash=0.12, hold=0.08, attack=0.09, release=0.13)\narm(\"both\", 5.13, raise_=47, forward=125, bend=18, fist=False, hold=0.15, attack=0.09, release=0.16)\nbody(5.13, squash=0.18, hold=0.09, attack=0.09, release=0.14)\narm(\"both\", 6.00, raise_=78, forward=125, bend=30, fist=False, hold=0.17, attack=0.09, release=0.16)\nbody(6.00, squash=0.16, hold=0.09, attack=0.09, release=0.15)",
+   "reviewer": "The sideward and single-arm hits read well. The crossed-arm and overhead hits need clearer hand placement, with the arms kept visible and in front of the body.",
+   "wrote_lessons": true
+  }
+ ],
+ "proposals": [
+  {
+   "change": "Improve arm-to-body collision and hand-meeting alignment for hands_together_chest and across_chest, keeping each arm curved outside the body except intended surface contact.",
+   "why": "Geometry checks repeatedly found deep arm penetration on chest-gathering poses (up to 11 cm); visual reviews also showed hands failing to meet at accents despite explicitly requesting them.",
+   "run": "agent_mem1",
+   "status": "pending"
+  },
+  {
+   "change": "Investigate posed arm collision and pose mapping: keep low chest-gathering arms outside the body's surface, let both hands meet at belly/chest without rising to the face, and enable straight overhead arms to extend their mitten tips above the hair.",
+   "why": "Across multiple inspected attempts, the arm-geometry checker found up to 11 cm of body penetration in low and crossing poses; explicit 180-degree overhead targets still appeared beside the hair.",
+   "run": "agent_mem2",
+   "status": "pending"
+  }
+ ]
+}
