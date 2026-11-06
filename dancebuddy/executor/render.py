@@ -15,8 +15,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def blender_cmd(script: str, args: list[str]) -> list[str]:
-    """Command running blender/<script> with args."""
-    path = str(ROOT / "blender" / script)
+    """Command running dancebuddy/blender/<script> with args."""
+    path = str(ROOT / "dancebuddy" / "blender" / script)
     if importlib.util.find_spec("bpy") is not None and not os.environ.get("BLENDER"):
         return [sys.executable, path, *args]
     exe = os.environ.get("BLENDER") or shutil.which("blender")

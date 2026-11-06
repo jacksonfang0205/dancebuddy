@@ -1,4 +1,4 @@
-"""Character picture -> cut-out sprite + occupancy grid, for blender/make_puppet.py.
+"""Character picture -> cut-out sprite + occupancy grid, for dancebuddy/blender/make_puppet.py.
 
 Accepts a PNG with transparency, or any image on a plain background (the
 background colour is estimated from the image border and keyed out).

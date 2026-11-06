@@ -7,7 +7,7 @@ For sampled frames of a curves.json, pose the rig and measure per arm:
   kink    the largest turn between two neighbouring B-bone segments (deg): a smooth curve spreads its turn
   inside  how deep arm points sink into the body (cm), and how many points do
 
-  python blender/check_arm_shape.py -- --blend assets/plush_soft.blend --curves runs/x/copy/curves.json
+  python dancebuddy/blender/check_arm_shape.py -- --blend assets/plush_soft.blend --curves runs/x/copy/curves.json
 """
 
 import argparse

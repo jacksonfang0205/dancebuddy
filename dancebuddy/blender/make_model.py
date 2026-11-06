@@ -3,7 +3,7 @@ character: decimate it, stand it on the floor at a standard size, add a
 4-bone spine (root -> lower -> upper -> top) weighted by height, render 4 views.
 
 Run `python -m dancebuddy model MODEL.glb assets/<name>`, or directly:
-  blender -b -P blender/make_model.py -- --model MODEL.glb --out assets/<name>
+  blender -b -P dancebuddy/blender/make_model.py -- --model MODEL.glb --out assets/<name>
 """
 
 import argparse

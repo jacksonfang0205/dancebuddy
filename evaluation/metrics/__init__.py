@@ -1,5 +1,5 @@
 """Metrics, the same for every system: they read only the character's motion (posed from curves.json in Blender,
-blender/measure_motion.py), the dancer's keypoints and dance score, and the system's own record of its calls.
+dancebuddy/blender/measure_motion.py), the dancer's keypoints and dance score, and the system's own record of its calls.
 
   rhythm     accent_recall      share of the dancer's accents the character hits (a stop after fast motion, ±0.1 s)
              beat_precision     share of the character's hits that land on a beat
@@ -7,7 +7,7 @@ blender/measure_motion.py), the dancer's keypoints and dance score, and the syst
   fidelity   arm_follow         correlation of each hand's position (relative to the shoulders) with the dancer's
                                 wrist, over time, averaged over both hands and both axes (-1..1)
   integrity  hands_in_frame     share of frames with both hands inside the picture
-             arm_folds / arm_sinking   frames where an arm folds / sinks into the body (blender/check_arm_shape.py)
+             arm_folds / arm_sinking   frames where an arm folds / sinks into the body (dancebuddy/blender/check_arm_shape.py)
   cost       llm_calls, cost_usd, attempts, passed (the system's own checks)
   pixels     px_accent_recall, px_beat_precision on rendered frames, when they exist (pixels.py)
 """

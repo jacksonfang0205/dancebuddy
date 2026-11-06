@@ -4,4 +4,5 @@
   planner/     the LLM and its loop      actions/    what it can decide (plans, its own moves)
   executor/    carries the actions out   critics/    how it checks the result
   tools.py     the tools the LLM calls   llm.py      model access
+  blender/     scripts run inside Blender (posing, rendering, mesh checks, rigging)
 """

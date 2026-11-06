@@ -3,7 +3,7 @@
 
 Run `python -m dancebuddy character puppet PICTURE assets/<name>` rather than this file
 directly: that first cuts the character out (dancebuddy/puppet.py), then runs:
-  blender -b -P blender/make_puppet.py -- --out assets/<name>
+  blender -b -P dancebuddy/blender/make_puppet.py -- --out assets/<name>
 
 Writes <out>.blend, <out>_rig.json and <out>_views/front.png.
 """
