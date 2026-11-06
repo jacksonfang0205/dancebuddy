@@ -1,0 +1,6 @@
+{
+ "about": "Dance videos for the evaluation. Videos are not committed: put them anywhere and list them here (path relative to the repository, or absolute). `python -m evaluation prepare` runs perception on each into runs/<id>/. The id 'synth' is a built-in synthetic dancer (no video needed).",
+ "dances": [
+  {"id": "synth", "video": "synth", "notes": "synthetic dancer, 22 accents, 6 units; for smoke tests"}
+ ]
+}

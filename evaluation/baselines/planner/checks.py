@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .beats import detect_hits, match, smooth
+from dancebuddy.perception.beats import detect_hits, match, smooth
 
 # how much change per frame in each channel type counts as "1 unit" of motion
 CHANNEL_SCALE = {"lift": 0.05, "squash": 0.05, "lean": 5.0, "twist": 5.0, "sway": 5.0}

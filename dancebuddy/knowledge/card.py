@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import llm
+from dancebuddy import llm
 
 PROMPT = """You are helping an animation agent make a non-humanoid 3D character dance along with a human dancer.
 Attached are rendered views of the character ({views}) and its rig is below.

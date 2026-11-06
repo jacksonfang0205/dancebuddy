@@ -128,7 +128,7 @@ def arm_directions(side: str, raise_: float, forward: float, bend: float) -> tup
 
 def curves(moves: list[dict], n: int, fps: float) -> dict:
     """Per frame: for each arm a weight and target directions (and a fist value or NaN); body offsets; hits as
-    emphasis entries (copy_plan.py format)."""
+    emphasis entries (actions/plan.py format)."""
     out = {"arm": {s: {"w": np.zeros(n), "u": np.zeros((n, 3)), "f": np.zeros((n, 3)), "fist": np.full(n, np.nan)}
                    for s in "LR"},
            "body": {k: np.zeros(n) for k in ("tilt", "lean", "turn", "squash", "lift")}, "emphasis": []}

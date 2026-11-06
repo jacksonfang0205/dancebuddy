@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from .beats import smooth
-from .perception import L_AN, L_HIP, L_SH, R_AN, R_HIP, R_SH
+from dancebuddy.perception.beats import smooth
+from dancebuddy.perception.video import L_AN, L_HIP, L_SH, R_AN, R_HIP, R_SH
 
 RULES = {
     "seen": 0.8,           # a foot counts only where the pose model sees it this surely (wide trousers, occlusion)

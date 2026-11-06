@@ -14,10 +14,10 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
-from . import llm
-from .checks import run_checks
-from .primitives import FOLLOW_CHANNELS, PRIMITIVES, compile_plan
-from .signals import SIGNAL_NAMES, unit_activity
+from dancebuddy import llm
+from evaluation.baselines.planner.checks import run_checks
+from evaluation.baselines.planner.primitives import FOLLOW_CHANNELS, PRIMITIVES, compile_plan
+from dancebuddy.perception.signals import SIGNAL_NAMES, unit_activity
 
 SYSTEM = """You are DanceBuddy, an animation agent. You make a non-humanoid 3D character dance along with a human
 dancer, in the same rhythm, by writing a motion plan.

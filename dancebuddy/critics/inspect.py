@@ -1,4 +1,4 @@
-"""Ways for the agent to see what a copy plan made, beyond the numbers (copy_checks.py), cheapest first:
+"""Ways for the agent to see what a plan made, beyond the numbers (critics/numbers.py), cheapest first:
 
   check_arm_geometry  poses the rig (no rendering, a few seconds per dozen frames): where an arm folds (its tightest
                       bend is tighter than the arm is thick) or sinks into the body, per move unit
@@ -20,9 +20,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import llm
+from dancebuddy import llm
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]  # the repository
 CELL = (180, 320)  # width, height of one picture in the contact sheet
 
 
@@ -159,4 +159,5 @@ def look_at_frames(curves_path: Path, blend: str, score: dict, spec: dict, sourc
     except Exception:  # noqa: BLE001 - keep the raw answer for the agent
         notes = {"raw": resp["text"]}
     (work / "look_notes.json").write_text(json.dumps(notes, indent=1))
-    return {"frames": frames, "picture": str(sheet), "notes": notes}
+    return {"frames": frames, "picture": str(sheet), "notes": notes,
+            "cost_usd": float((resp.get("usage") or {}).get("cost") or 0.0)}

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .perception import (L_AN, L_EL, L_HIP, L_KN, L_SH, L_WR, NOSE, R_AN, R_EL, R_HIP, R_KN, R_SH, R_WR)
+from dancebuddy.perception.video import (L_AN, L_EL, L_HIP, L_KN, L_SH, L_WR, NOSE, R_AN, R_EL, R_HIP, R_KN, R_SH, R_WR)
 
 REST = {  # world coords, metres, MediaPipe convention: x right, y down, z toward camera; hips at origin
     NOSE: (0, -0.62, 0), L_SH: (0.18, -0.45, 0), R_SH: (-0.18, -0.45, 0),

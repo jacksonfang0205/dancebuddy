@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from .beats import smooth
-from .perception import L_AN, L_EL, L_HIP, L_SH, NOSE, R_AN, R_EL, R_HIP, R_SH, wrap_deg
+from dancebuddy.perception.beats import smooth
+from dancebuddy.perception.video import L_AN, L_EL, L_HIP, L_SH, NOSE, R_AN, R_EL, R_HIP, R_SH, wrap_deg
 
 SIGNAL_INFO: dict[str, dict] = {
     "arm_L_raise": {"units": "degrees", "two_sided": False, "meaning": "dancer's left upper arm lifting (0 = hanging down, 90 = horizontal)"},

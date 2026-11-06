@@ -19,8 +19,8 @@ from __future__ import annotations
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
-from .beats import smooth
-from .perception import L_EL, L_HIP, L_SH, L_WR, R_EL, R_HIP, R_SH, R_WR
+from dancebuddy.perception.beats import smooth
+from dancebuddy.perception.video import L_EL, L_HIP, L_SH, L_WR, R_EL, R_HIP, R_SH, R_WR
 
 # the character's range (motion spec "can_do"): the dancer is copied at full size and compressed softly near these
 BODY = {"turn_max": 180.0,       # it can turn all the way round (motion spec)
@@ -403,8 +403,8 @@ def groove(n: int, fps: float, beats: list[int] | None, busy: np.ndarray) -> dic
 
 def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] | None = None,
              plan: dict | None = None, score: dict | None = None) -> dict:
-    """plan: the agent's decisions (copy_plan.py); None = the plain copy. score: the dance score (move units)."""
-    from .copy_plan import emphasis_curves, knob_curves, leg_overrides
+    """plan: the agent's decisions (actions/plan.py); None = the plain copy. score: the dance score (move units)."""
+    from dancebuddy.actions.plan import emphasis_curves, knob_curves, leg_overrides
     fps = float(kp["fps"])
     w = to_blender(kp["world"])
     w = np.stack([np.stack([smooth(w[:, j, k], 1.5) for k in range(3)], -1) for j in range(w.shape[1])], 1)
@@ -417,13 +417,13 @@ def retarget(kp: dict, rig: dict, signals: dict | None = None, beats: list[int] 
     rest_dir = {k: M[k][:, 1] for k in M if "__" not in k}  # bone axis = local Y
 
     if signals is None:
-        from .signals import compute_signals
+        from dancebuddy.perception.signals import compute_signals
         signals = compute_signals(kp)
-    from .legs import translate as translate_legs
+    from dancebuddy.executor.legs import translate as translate_legs
     legs = translate_legs(kp, signals, leg_overrides(plan))
     height = float(rig.get("height_m", 1.4))
     knob = knob_curves(plan, score, n, fps)
-    from .moves import curves as move_curves, parse as parse_moves
+    from dancebuddy.actions.moves import curves as move_curves, parse as parse_moves
     mv = move_curves(parse_moves((plan or {}).get("moves", "")), n, fps)  # the agent's own moves
     emph = emphasis_curves({"emphasis": [*(plan or {}).get("emphasis", []), *mv["emphasis"]]}, n, fps, height)
 

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .beats import detect_hits, match, smooth
+from dancebuddy.perception.beats import detect_hits, match, smooth
 
 WIDTH = 160  # downscale before differencing: faster, and ignores noise at render resolution
 

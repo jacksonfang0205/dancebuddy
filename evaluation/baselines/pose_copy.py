@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from .beats import smooth
-from .perception import L_EL, L_HIP, L_SH, NOSE, R_EL, R_HIP, R_SH, wrap_deg
+from dancebuddy.perception.beats import smooth
+from dancebuddy.perception.video import L_EL, L_HIP, L_SH, NOSE, R_EL, R_HIP, R_SH, wrap_deg
 
 
 def _angle(a: np.ndarray, b: np.ndarray) -> np.ndarray:

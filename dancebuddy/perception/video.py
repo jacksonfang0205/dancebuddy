@@ -18,11 +18,11 @@ from pathlib import Path
 
 import numpy as np
 
-from .beats import beats_and_accents, smooth
+from dancebuddy.perception.beats import beats_and_accents, smooth
 
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
              "pose_landmarker_full/float16/latest/pose_landmarker_full.task")
-MODEL_PATH = Path(__file__).resolve().parent.parent / "assets" / "pose_landmarker_full.task"
+MODEL_PATH = Path(__file__).resolve().parents[2] / "assets" / "pose_landmarker_full.task"
 
 # MediaPipe landmark indices
 NOSE, L_SH, R_SH, L_EL, R_EL, L_WR, R_WR = 0, 11, 12, 13, 14, 15, 16
@@ -216,7 +216,7 @@ def build_dance_score(kp: dict, unit_seconds: float = 2.0, source: str = "") -> 
             },
         })
 
-    from .signals import compute_signals, signal_stats
+    from dancebuddy.perception.signals import compute_signals, signal_stats
 
     signals = compute_signals(kp)
     return {
