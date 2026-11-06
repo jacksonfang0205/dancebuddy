@@ -1,22 +1,15 @@
-"""Fast tests: no model calls, no Blender. Run with `uv run pytest`."""
+"""Fast tests of the MVP: no model calls, no Blender. Run with `uv run pytest`."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from dancebuddy import agent, llm
-from dancebuddy.baseline import pose_copy
-from dancebuddy.checks import metrics, run_checks
+from dancebuddy import llm
 from dancebuddy.perception import build_dance_score, load_keypoints
-from dancebuddy.primitives import compile_plan
 from dancebuddy.synth import make
 
 ROOT = Path(__file__).resolve().parent.parent
-CARD = {"name": "capsule", "root_bone": "root",
-        "bones": [{"name": n} for n in ("root", "lower", "upper", "top")],
-        "limits": {"lean": 35, "twist": 45, "sway": 35, "lift": 0.35, "squash": 0.35}}
-PLAN = json.loads((ROOT / "examples" / "handwritten_plan_synth.json").read_text())
 
 
 @pytest.fixture(scope="module")
@@ -32,137 +25,6 @@ def test_accents_match_the_synthetic_beats(synth):
     hits = sum(any(abs(a - t) <= 3 for a in score["accents"]) for t in truth)
     assert hits / len(truth) >= 0.75
     assert len(score["units"]) == 6
-
-
-def test_handwritten_plan_passes_checks(synth):
-    _, score = synth
-    res = run_checks(compile_plan(PLAN, score, CARD), score, CARD)
-    assert res["passed"], res["checks"]
-
-
-def test_pose_copy_loses_arm_sections(synth):
-    kp, score = synth
-    m = metrics(pose_copy(kp, CARD), score, CARD)
-    assert m["idle_units"] >= 2 and m["accent_recall"] < 0.5
-
-
-def test_limit_violation_is_reported(synth):
-    _, score = synth
-    bad = json.loads(json.dumps(PLAN))
-    bad["units"][0]["primitives"][0]["amplitude"] = 80
-    res = run_checks(compile_plan(bad, score, CARD), score, CARD)
-    assert not res["checks"]["limits"]["passed"]
-
-
-def test_agent_revises_after_failed_check(synth, tmp_path, monkeypatch):
-    _, score = synth
-    bad = json.loads(json.dumps(PLAN))
-    bad["units"][0]["primitives"][0]["amplitude"] = 80
-    script = iter([
-        {"text": "", "tool_calls": [{"id": "a", "name": "get_dance_score", "arguments": {}}]},
-        {"text": "", "tool_calls": [{"id": "b", "name": "submit_plan", "arguments": bad}]},
-        {"text": "", "tool_calls": [{"id": "c", "name": "submit_plan", "arguments": PLAN}]},
-        {"text": "done", "tool_calls": []},
-    ])
-    monkeypatch.setattr(llm, "call", lambda *a, **k: next(script))
-    summary = agent.run_agent(score, CARD, tmp_path)
-    assert summary["attempts"] == 2 and summary["passed"] and summary["best_attempt"] == 2
-
-
-def test_cut_out_finds_the_character_on_a_plain_background(tmp_path):
-    from dancebuddy.puppet import cut_out
-    info = cut_out(ROOT / "examples" / "sample_character.png", tmp_path / "char")
-    filled = sum(map(sum, info["grid"])) / (info["rows"] * info["cols"])
-    assert 0.5 < filled < 0.95 and info["height_px"] > info["width_px"]
-
-
-def test_follow_tracks_the_dancer_signal(synth):
-    import numpy as np
-    from dancebuddy.signals import normalized
-
-    _, score = synth
-    unit = score["units"][2]  # torso-twist section
-    plan = {"units": [{"unit_id": 2, "intent": "copy the twist", "primitives": [
-        {"primitive": "follow", "signal": "torso_twist", "channel": "twist", "bones": ["upper"], "amplitude": 30}]}]}
-    curve = np.array(compile_plan(plan, score, CARD)["channels"]["upper.twist"])
-    s, e = unit["start"] + 5, unit["end"] - 5
-    target = normalized(score, "torso_twist")[s:e]
-    assert np.corrcoef(curve[s:e], target)[0, 1] > 0.95
-    assert abs(curve[:unit["start"] - 10]).max() < 1e-6  # nothing outside the unit (beyond the fade)
-
-
-def test_follow_needs_a_valid_signal(synth):
-    _, score = synth
-    for p in ({"primitive": "follow", "channel": "twist", "bones": ["upper"], "amplitude": 20},
-              {"primitive": "follow", "signal": "no_such", "channel": "twist", "bones": ["upper"], "amplitude": 20}):
-        with pytest.raises(ValueError):
-            compile_plan({"units": [{"unit_id": 0, "intent": "x", "primitives": [p]}]}, score, CARD)
-
-
-def test_get_dance_signals_tool(synth, tmp_path, monkeypatch):
-    _, score = synth
-    seen = {}
-    script = iter([
-        {"text": "", "tool_calls": [{"id": "a", "name": "get_dance_signals", "arguments": {}}]},
-        {"text": "", "tool_calls": [{"id": "b", "name": "submit_plan", "arguments": PLAN}]},
-        {"text": "done", "tool_calls": []},
-    ])
-
-    def fake_call(messages, *a, **k):
-        tool_msgs = [m for m in messages if m.get("role") == "tool"]
-        if tool_msgs and "signals" not in seen:
-            seen["signals"] = json.loads(tool_msgs[0]["content"])
-        return next(script)
-
-    monkeypatch.setattr(llm, "call", fake_call)
-    agent.run_agent(score, CARD, tmp_path)
-    reply = seen["signals"]
-    assert "torso_twist" in reply["signals"] and len(reply["units"]) == len(score["units"])
-    assert "torso_twist" in reply["units"][2]["most_active_signals"]
-
-
-def test_pixel_metric_finds_hits_in_rendered_frames(synth):
-    import numpy as np
-    from dancebuddy.video_metrics import motion_from_frames, pixel_metrics
-
-    _, score = synth
-    n, acc = score["n_frames"], score["accents"]
-    # a square that darts to the other side before each accent and stops dead on it (ease-out move)
-    pos, side, prev = np.zeros(n), 0.0, 0
-    for a in acc:
-        start = max(prev, a - 6)
-        pos[prev:start] = side
-        new = 50.0 - side
-        t = np.linspace(0, 1, a - start + 1)
-        pos[start:a + 1] = side + (new - side) * (1 - (1 - t) ** 2)
-        side, prev = new, a + 1
-    pos[prev:] = side
-    frames = []
-    for i in range(n):
-        img = np.full((90, 160, 3), 255, np.uint8)
-        img[30:60, 40 + int(pos[i]):70 + int(pos[i])] = 0
-        frames.append(img)
-    good = pixel_metrics(motion_from_frames(frames), score)
-    still = pixel_metrics(motion_from_frames([frames[0]] * n), score)
-    assert good["px_accent_recall"] >= 0.6
-    assert still["px_accent_recall"] == 0 and still["px_hits"] == 0
-
-
-def test_follow_plan_keeps_hits_in_other_units(synth):
-    # continuous follow motion in units 2-3 must not hide the hops of units 4-5
-    _, score = synth
-    plan = json.loads((ROOT / "examples" / "handwritten_plan_synth_follow.json").read_text())
-    res = run_checks(compile_plan(plan, score, CARD), score, CARD)
-    assert res["passed"], res["checks"]
-    assert not [u for u in res["units"] if u["unit_id"] in (4, 5)]
-
-
-def test_unit_report_names_the_failing_units(synth):
-    kp, score = synth
-    res = run_checks(pose_copy(kp, CARD), score, CARD)
-    bad = {u["unit_id"] for u in res["units"]}
-    assert bad and all(u["problems"] for u in res["units"])
-    assert bad <= {u["id"] for u in score["units"]}
 
 
 def test_copy_raises_the_arm_the_dancer_raises(synth):
@@ -322,28 +184,12 @@ def test_moves_parse_safely_and_take_over_the_arm():
     assert abs(c["body"]["tilt"][60] + 10) < 1e-6 and c["emphasis"][0]["frame"] == 30
 
 
-def test_memory_keeps_lessons_and_spec_changes_need_approval(tmp_path):
-    from dancebuddy import memory as m
-    spec = tmp_path / "x_motion_spec.json"
-    spec.write_text(json.dumps({"character": "x"}))
-    mem = m.load(tmp_path / "x_memory.json")
-    m.remember(mem, [{"kind": "works", "text": "Pose overhead for raised accents"}, {"kind": "bogus", "text": "?"}],
-               {"change": "raised hands reach above the head", "why": "seen in looks"}, "run1")
-    m.remember(mem, [{"kind": "works", "text": "pose overhead for raised accents"}], None, "run2")
-    assert len(mem["lessons"]) == 1 and mem["lessons"][0]["count"] == 2
-    assert "learned" not in json.loads(spec.read_text())          # nothing reaches the spec by itself
-    assert m.view(mem)["pending_spec_proposals"] == ["raised hands reach above the head"]
-    m.decide(mem, spec, 0, approve=True)
-    assert json.loads(spec.read_text())["learned"] == ["raised hands reach above the head"]
-    assert m.view(mem)["pending_spec_proposals"] == []
-
-
 def test_command_line_options():
     import subprocess
     import sys
     out = subprocess.run([sys.executable, "-m", "dancebuddy", "copy-agent", "--help"], capture_output=True, text=True,
                          cwd=ROOT).stdout
-    assert "--attempts" in out and "--looks" in out and "--no-memory" in out
-    out = subprocess.run([sys.executable, "-m", "dancebuddy", "memory", "--help"], capture_output=True, text=True,
-                         cwd=ROOT).stdout
-    assert "--approve" in out and "--attempts" not in out
+    assert "--attempts" in out and "--looks" in out
+    out = subprocess.run([sys.executable, "-m", "dancebuddy", "--help"], capture_output=True, text=True, cwd=ROOT).stdout
+    for cmd in ("perceive", "copy", "copy-agent", "render", "compose", "demo"):
+        assert cmd in out

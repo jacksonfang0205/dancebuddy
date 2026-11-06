@@ -20,7 +20,6 @@ from . import llm
 from .copy_checks import rank, run_copy_checks
 from .copy_plan import EMPHASIS_MOVES, KNOBS, PLAN_SCHEMA, default_plan
 from .inspect_tools import check_arm_geometry, look_at_frames, pick_frames
-from . import memory as memory_mod
 from . import moves as moves_mod
 from .retarget import retarget
 
@@ -30,8 +29,6 @@ torso, every leg move is translated (the character has no legs) and the body gro
 the dancer's moves are SHOWN on this body, unit by unit, by setting the knobs of a copy plan.
 
 How to work:
-0. Read your memory of this character (get_memory): lessons from your earlier runs (what worked, what failed,
-   tips) and their recent results. Use them: start from what worked, avoid what failed.
 1. Read the dance (get_dance_score, get_dance_signals, get_leg_events) and the character (get_character_spec).
    Note what each unit is about: arms, footwork, head and hair flips, turns.
 2. Read the plan format (get_plan_format). Every knob defaults to the plain copy.
@@ -56,12 +53,8 @@ How to work:
    hands should go above the head, arm("both", 0.7, pose="hands_together_chest"), body(2.7, tilt=-12). A move
    takes over from the copy around its time and blends back, so write moves only where the copy does not read,
    time them on the dancer's moment (seconds), and look again to confirm they worked.
-6. When the checks pass and what you looked at is fine, or you are out of attempts: call remember once with the
-   lessons of this run that will help next time with this character (short, general, not tied to this dance's
-   timing: e.g. "works: pose overhead with fist for raised accents", "fails: knob arms > 1.3 pushes hands out of the
-   picture"), and, only if what you saw shows the motion spec is wrong or missing something, one spec_proposal
-   (a person reviews it). Then reply with a short summary of your decisions, what you checked and what is still
-   wrong, and stop."""
+6. When the checks pass and what you looked at is fine, or you are out of attempts, reply with a short summary of
+   your decisions, what you checked and what is still wrong, and stop."""
 
 TOOLS = [
     llm.tool_spec("get_dance_score", "Move units (time, label, which body regions move), accents and beats, as frames and seconds.",
@@ -81,18 +74,6 @@ TOOLS = [
                   "(at most 24) or on a unit's key frames.",
                   {"type": "object", "properties": {"attempt": {"type": "integer"}, "unit_id": {"type": "integer"},
                                                     "frames": {"type": "array", "items": {"type": "integer"}}}}),
-    llm.tool_spec("get_memory", "Your memory of this character: lessons from earlier runs, their recent results, "
-                  "and spec changes you proposed that are still waiting for a person.",
-                  {"type": "object", "properties": {}}),
-    llm.tool_spec("remember", "Save this run's lessons for the next runs with this character, and optionally "
-                  "propose a change to its motion spec (a person approves it).",
-                  {"type": "object", "properties": {
-                      "lessons": {"type": "array", "items": {"type": "object", "properties": {
-                          "kind": {"type": "string", "enum": list(memory_mod.KINDS)},
-                          "text": {"type": "string"}}, "required": ["kind", "text"]}},
-                      "spec_proposal": {"type": "object", "properties": {
-                          "change": {"type": "string"}, "why": {"type": "string"}}}},
-                   "required": ["lessons"]}),
     llm.tool_spec("look_at_frames", "Render up to 8 frames of an attempt small, next to the dancer at the same "
                   "moments, and get a reviewer's notes per frame (copy 0-2, problems, a fix). About half a minute; "
                   "limited number of looks per run. On the latest attempt unless `attempt` is given; on `frames` or on "
@@ -117,7 +98,7 @@ LEG_DEFAULTS = {"jump": "squash to wind up, stretch and hop, squash on landing",
 
 def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | Path, max_attempts: int = 4,
                    max_turns: int = 24, model: str | None = None, blend: str | None = None,
-                   source: str | None = None, max_looks: int = 4, memory_path: Path | None = None) -> dict:
+                   source: str | None = None, max_looks: int = 4) -> dict:
     """blend: the rigged character (for the geometry check and the looks); source: the dance video (for the
     looks). Without them the agent only has the numeric checks."""
     out = Path(out_dir)
@@ -131,8 +112,6 @@ def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | 
     spec_view = {k: v for k, v in spec.items() if k not in ("physics", "rig")}
     attempts: list[dict] = []
     looks: list[dict] = []
-    mem = memory_mod.load(memory_path) if memory_path else None
-    remembered: list[dict] = []
 
     def tool(name: str, args: dict) -> str:
         if name == "get_dance_score":
@@ -178,14 +157,6 @@ def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | 
                   + " ".join(f"{n}={'ok' if c['passed'] else 'FAIL'}" for n, c in res["checks"].items()))
             view = {kk: v for kk, v in res.items() if kk != "all_units"}
             return json.dumps({"attempt": k, "attempts_left": max_attempts - k, **view})
-        if name == "get_memory":
-            return json.dumps(memory_mod.view(mem) if mem is not None else {"note": "no memory in this run"})
-        if name == "remember":
-            if mem is None:
-                return json.dumps({"note": "no memory in this run"})
-            res = memory_mod.remember(mem, args.get("lessons", []), args.get("spec_proposal"), out.name)
-            remembered.append(args)
-            return json.dumps(res)
         if name in ("check_arm_geometry", "look_at_frames"):
             if not attempts:
                 return json.dumps({"error": "submit a plan first"})
@@ -245,15 +216,5 @@ def run_copy_agent(kp: dict, score: dict, rig: dict, spec: dict, out_dir: str | 
                "looks": [{"attempt": x["attempt"], "frames": x["frames"], "picture": x["picture"]} for x in looks],
                "final_message": final_text, "model": model or llm.DEFAULT_MODEL}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
-    if mem is not None:  # what this run did, recorded whether or not the agent wrote lessons
-        best_plan = json.loads((Path(best["dir"]) / "plan.json").read_text())
-        last_look = looks[-1]["notes"].get("overall") if looks and isinstance(looks[-1].get("notes"), dict) else None
-        mem["runs"].append({"run": str(out), "passed": best["result"]["passed"],
-                            "accents": best["result"]["checks"]["accents"]["value"],
-                            "attempts": len(attempts), "looks": len(looks),
-                            "moves_written": len([x for x in best_plan.get("moves", "").splitlines() if x.strip()]),
-                            "moves": best_plan.get("moves", ""), "reviewer": last_look,
-                            "wrote_lessons": bool(remembered)})
-        memory_mod.save(memory_path, mem)
     print(f"agent: {len(attempts)} attempt(s), best = {best['attempt']}, passed = {best['result']['passed']}")
     return summary

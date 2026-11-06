@@ -1,6 +1,6 @@
 """Apply curves.json to a rigged character and render the frames.
 
-  blender -b -P blender/render_curves.py -- --blend assets/capsule.blend --curves runs/x/curves.json --frames runs/x/frames
+  blender -b -P blender/render_curves.py -- --blend assets/plush_soft.blend --curves runs/x/curves.json --frames runs/x/frames
   python blender/render_curves.py --blend ... (if the bpy module is installed)
 
 Channel -> pose bone mapping (bones point up, so bone-local Y is the bone axis):

@@ -1,18 +1,16 @@
-"""DanceBuddy command line.
+"""DanceBuddy command line (MVP: a 3D plush character copies a dance video, an LLM agent directs the copy).
 
-  python -m dancebuddy synth      runs/synth                      # synthetic dancer (no video needed)
-  python -m dancebuddy perceive   VIDEO runs/clip1                 # pose -> dance_score.json
-  python -m dancebuddy character  assets/capsule                   # build + render the capsule character
-  python -m dancebuddy puppet     PICTURE assets/blob              # character picture -> rigged 2D puppet + card
-  python -m dancebuddy model      MODEL.glb assets/plush           # unrigged 3D model -> rigged character + card
-  python -m dancebuddy card       assets/capsule_rig.json          # VLM character card
-  python -m dancebuddy agent      runs/clip1                       # plan -> check -> revise
-  python -m dancebuddy baseline   runs/clip1                       # pose-copy baseline
-  python -m dancebuddy apply      runs/clip1 plan.json             # compile + check a hand-written plan
-  python -m dancebuddy render     runs/clip1 [--systems agent posecopy]
-  python -m dancebuddy compose    runs/clip1                       # side-by-side video
-  python -m dancebuddy eval       runs/clip1 [runs/clip2 ...]      # metrics table
-  python -m dancebuddy demo       VIDEO runs/clip1 [--image PIC]   # everything above, in order
+One-time, per character:
+  python -m dancebuddy model      MODEL.glb assets/plush          # import an unrigged 3D model
+  python blender/rig_soft.py -- --blend assets/plush.blend --out assets/plush_soft   # rig it from its motion spec
+
+Per dance:
+  python -m dancebuddy perceive   VIDEO runs/clip1                # pose -> keypoints + dance score (beats, accents)
+  python -m dancebuddy copy       runs/clip1                      # plain copy (no LLM), for comparison
+  python -m dancebuddy copy-agent runs/clip1                      # the agent: plan, check, look, write moves, revise
+  python -m dancebuddy render     runs/clip1 --systems copy agent_copy --engine cycles
+  python -m dancebuddy compose    runs/clip1 --systems copy agent_copy   # dancer | copy | agent, side by side
+  python -m dancebuddy demo       VIDEO runs/clip1                # all of the per-dance steps, in order
 """
 
 from __future__ import annotations
@@ -27,7 +25,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CHAR = ROOT / "assets" / "capsule"
+DEFAULT_CHAR = ROOT / "assets" / "plush_soft"
 
 
 # ------------------------------------------------------------------ helpers
@@ -55,30 +53,12 @@ def load(p: Path) -> dict:
     return json.loads(Path(p).read_text())
 
 
-def card_path(char: Path) -> Path:
-    return Path(str(char) + "_card.json")
-
-
-def get_card(char: Path) -> dict:
-    p = card_path(char)
-    if p.exists():
-        return load(p)
-    rig = Path(str(char) + "_rig.json")
-    if not rig.exists():
-        sys.exit(f"no character at {char}; run: python -m dancebuddy character {char}")
-    from .character import build_card
-    return build_card(rig, p, use_vlm=False)
+def spec_for(char: Path) -> dict:
+    p = Path(str(char).split("_")[0] + "_motion_spec.json")
+    return load(p) if p.exists() else {}
 
 
 # ------------------------------------------------------------------ commands
-
-def cmd_synth(a):
-    from .perception import perceive
-    from .synth import make
-    out = make(a.run)
-    perceive(out / "dancer.mp4", out)
-    (Path(a.run) / "source.txt").write_text(str(Path(a.run) / "dancer.mp4"))
-
 
 def cmd_perceive(a):
     from .perception import perceive
@@ -88,56 +68,11 @@ def cmd_perceive(a):
         (Path(a.run) / "source.txt").write_text(str(Path(a.video).resolve()))
 
 
-def cmd_character(a):
-    run(blender_cmd("make_capsule.py", ["--out", str(a.char), "--engine", a.engine]))
-
-
-def cmd_puppet(a):
-    from .character import build_card
-    from .puppet import cut_out
-    cut_out(a.image, a.char)
-    run(blender_cmd("make_puppet.py", ["--out", str(a.char), "--engine", a.engine]))
-    build_card(Path(str(a.char) + "_rig.json"), card_path(Path(a.char)), use_vlm=not a.no_vlm)
-
-
 def cmd_model(a):
-    from .character import build_card
     args = ["--model", str(Path(a.model).expanduser().resolve()), "--out", str(a.char), "--engine", a.engine]
     if a.yaw:
         args += ["--yaw", str(a.yaw)]
     run(blender_cmd("make_model.py", args))
-    build_card(Path(str(a.char) + "_rig.json"), card_path(Path(a.char)), use_vlm=not a.no_vlm)
-
-
-def cmd_card(a):
-    from .character import build_card
-    rig = Path(a.rig)
-    out = Path(str(rig).replace("_rig.json", "_card.json"))
-    card = build_card(rig, out, use_vlm=not a.no_vlm)
-    print(json.dumps(card.get("description"), indent=1))
-
-
-def cmd_agent(a):
-    from .agent import run_agent
-    run_dir = Path(a.run)
-    score, card = load(run_dir / "dance_score.json"), get_card(Path(a.char))
-    name = a.name or ("agent" + ("_nocard" if a.no_card else "") + ("_norevise" if a.no_revise else ""))
-    run_agent(score, card, run_dir / name, max_attempts=1 if a.no_revise else a.attempts,
-              use_card_description=not a.no_card, model=a.model)
-
-
-def cmd_baseline(a):
-    from .baseline import pose_copy
-    from .checks import run_checks
-    from .perception import load_keypoints
-    run_dir = Path(a.run)
-    kp, card, score = load_keypoints(run_dir / "keypoints.npz"), get_card(Path(a.char)), load(run_dir / "dance_score.json")
-    curves = pose_copy(kp, card)
-    out = run_dir / "posecopy"
-    out.mkdir(exist_ok=True)
-    (out / "curves.json").write_text(json.dumps(curves))
-    (out / "checks.json").write_text(json.dumps(run_checks(curves, score, card), indent=1))
-    print(f"pose-copy baseline -> {out}")
 
 
 def cmd_copy(a):
@@ -160,64 +95,23 @@ def cmd_copy(a):
     (out / "curves.json").write_text(json.dumps(curves))
     if score.exists():
         from .copy_checks import run_copy_checks
-        spec_path = Path(str(a.char).split("_")[0] + "_motion_spec.json")
-        res = run_copy_checks(curves, load(score), rig, load(spec_path) if spec_path.exists() else {})
+        res = run_copy_checks(curves, load(score), rig, spec_for(a.char))
         (out / "checks.json").write_text(json.dumps(res, indent=1))
     print(f"copy: {curves['n_frames']} frames, {len(curves['channels'])} channels -> {out}")
 
 
-def memory_path_for(char):
-    from .memory import path_for
-    return path_for(char)
-
-
 def cmd_copy_agent(a):
-    """The agent decides how the dancer's moves are shown on the character (copy_agent.py), then copies."""
+    """The agent decides how the dancer's moves are shown on the character (copy_agent.py)."""
     from .copy_agent import run_copy_agent
     from .perception import load_keypoints
     run_dir = Path(a.run)
     rig = load(Path(str(a.char) + "_rig.json"))
-    spec_path = Path(str(a.char).split("_")[0] + "_motion_spec.json")
-    spec = load(spec_path) if spec_path.exists() else {}
     score = load(run_dir / "dance_score.json")
     source = (run_dir / "source.txt").read_text().strip() if (run_dir / "source.txt").exists() else score.get("source")
     blend = str(a.char) + ".blend"
-    run_copy_agent(load_keypoints(run_dir / "keypoints.npz"), score, rig, spec, run_dir / a.name,
+    run_copy_agent(load_keypoints(run_dir / "keypoints.npz"), score, rig, spec_for(a.char), run_dir / a.name,
                    max_attempts=a.attempts, model=a.model, blend=blend if Path(blend).exists() else None,
-                   source=source if source and Path(source).exists() else None, max_looks=a.looks,
-                   memory_path=None if a.no_memory else memory_path_for(a.char))
-
-
-def cmd_memory(a):
-    """Show the agent's memory of a character; approve or reject its proposed spec changes."""
-    from . import memory as m
-    p = m.path_for(a.char)
-    mem = m.load(p)
-    if a.approve is not None or a.reject is not None:
-        spec_path = Path(str(a.char).split("_")[0] + "_motion_spec.json")
-        i = a.approve if a.approve is not None else a.reject
-        print(f"proposal {i}:", m.decide(mem, spec_path, i, a.approve is not None))
-        m.save(p, mem)
-    print(json.dumps(m.view(mem), indent=1, ensure_ascii=False))
-    pending = [x for x in mem["proposals"] if x["status"] == "pending"]
-    for i, x in enumerate(pending):
-        print(f"[{i}] {x['change']}  -- why: {x['why']}  (run {x['run']})")
-
-
-def cmd_apply(a):
-    """Compile a plan you wrote yourself (no LLM) and check it."""
-    from .checks import run_checks
-    from .primitives import compile_plan
-    run_dir = Path(a.run)
-    score, card, plan = load(run_dir / "dance_score.json"), get_card(Path(a.char)), load(Path(a.plan))
-    curves = compile_plan(plan, score, card)
-    out = run_dir / a.name
-    out.mkdir(exist_ok=True)
-    res = run_checks(curves, score, card)
-    (out / "plan.json").write_text(json.dumps(plan, indent=1))
-    (out / "curves.json").write_text(json.dumps(curves))
-    (out / "checks.json").write_text(json.dumps(res, indent=1))
-    print(f"{a.name}: passed={res['passed']} -> {out}")
+                   source=source if source and Path(source).exists() else None, max_looks=a.looks)
 
 
 def cmd_render(a):
@@ -266,7 +160,7 @@ def cmd_compose(a):
         fr = run_dir / s / ("preview" if a.preview else "frames")
         if fr.exists() and any(fr.glob("frame_*.png")):
             info = fr / "render_info.json"
-            r = load(info)["fps"] if info.exists() else score["fps"]  # older renders: every source frame
+            r = load(info)["fps"] if info.exists() else score["fps"]
             inputs += ["-framerate", f"{r:g}", "-start_number", "1", "-i", str(fr / "frame_%04d.png")]
             labels.append(s)
             rates.append(r)
@@ -287,69 +181,24 @@ def cmd_compose(a):
 
     out = run_dir / ("side_by_side_preview.mp4" if a.preview else "side_by_side.mp4")
     for with_text in (True, False):
-        cmd = ["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", graph(with_text), "-map", "[out]", "-map", "0:a?",
-               "-c:v", "libx264", "-c:a", "aac", "-shortest", "-pix_fmt", "yuv420p", str(out)]
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", graph(with_text), "-map", "[out]",
+               "-map", "0:a?", "-c:v", "libx264", "-c:a", "aac", "-shortest", "-pix_fmt", "yuv420p", str(out)]
         if subprocess.run(cmd).returncode == 0:
             print(f"wrote {out}" + ("" if with_text else " (no labels: this ffmpeg has no drawtext)"))
             return
     sys.exit("ffmpeg failed")
 
 
-def cmd_eval(a):
-    from .checks import metrics
-    rows = []
-    for rd in a.runs:
-        rd = Path(rd)
-        score = load(rd / "dance_score.json")
-        card = get_card(Path(a.char))
-        for sysdir in sorted(p for p in rd.iterdir() if (p / "curves.json").exists()):
-            m = metrics(load(sysdir / "curves.json"), score, card)
-            extra = {}
-            if list((sysdir / "frames").glob("frame_*.png")):  # rendered: add the pixel-based metric
-                from .video_metrics import motion_from_dir, pixel_metrics
-                extra.update(pixel_metrics(motion_from_dir(sysdir / "frames"), score))
-            if (sysdir / "summary.json").exists():
-                s = load(sysdir / "summary.json")
-                extra["attempts"] = s["attempts"]
-            rows.append({"run": rd.name, "system": sysdir.name, **m, **extra})
-    if not rows:
-        sys.exit("no results found")
-    cols = ["run", "system", "accent_recall", "beat_precision", "beat_alignment", "mean_offset_ms",
-            "limit_violations", "idle_units", "jerk", "px_accent_recall", "px_beat_precision", "all_checks_passed",
-            "attempts"]
-    lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
-    for r in rows:
-        lines.append("| " + " | ".join(str(r.get(c, "")) for c in cols) + " |")
-    table = "\n".join(lines)
-    print(table)
-    out = Path(a.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(rows, indent=1))
-    out.with_suffix(".md").write_text(table + "\n")
-    print(f"\nwrote {out} and {out.with_suffix('.md')}")
-
-
 def cmd_demo(a):
-    char = Path(a.char)
-    if a.image:
-        if a.char == DEFAULT_CHAR:
-            char = ROOT / "assets" / Path(a.image).stem
-        cmd_puppet(argparse.Namespace(image=a.image, char=char, engine=a.engine, no_vlm=False))
-    elif not Path(str(char) + ".blend").exists():
-        cmd_character(argparse.Namespace(char=char, engine=a.engine))
-    if not card_path(char).exists():
-        cmd_card(argparse.Namespace(rig=str(char) + "_rig.json", no_vlm=False))
-    if a.video == "synth":
-        cmd_synth(argparse.Namespace(run=a.run))
-    else:
-        cmd_perceive(argparse.Namespace(video=a.video, run=a.run, max_seconds=a.max_seconds))
-    cmd_agent(argparse.Namespace(run=a.run, char=char, name=None, no_card=False, no_revise=False,
-                                 attempts=a.attempts, model=None))
-    cmd_baseline(argparse.Namespace(run=a.run, char=char))
-    cmd_render(argparse.Namespace(run=a.run, char=char, systems=["agent", "posecopy"], engine=a.engine,
-                                  width=a.width, height=a.height, max_frames=0))
-    cmd_compose(argparse.Namespace(run=a.run, systems=["agent", "posecopy"], height=a.height))
-    cmd_eval(argparse.Namespace(runs=[a.run], char=char, out=str(Path(a.run) / "results.json")))
+    """Every per-dance step: perceive, plain copy, agent, render both, side-by-side video."""
+    cmd_perceive(argparse.Namespace(video=a.video, run=a.run, max_seconds=a.max_seconds))
+    cmd_copy(argparse.Namespace(run=a.run, char=a.char, name="copy", plan=None))
+    cmd_copy_agent(argparse.Namespace(run=a.run, char=a.char, name="agent_copy", attempts=a.attempts, model=None,
+                                      looks=a.looks))
+    systems = ["copy", "agent_copy"]
+    cmd_render(argparse.Namespace(run=a.run, char=a.char, systems=systems, engine=a.engine, width=a.width,
+                                  height=a.height, max_frames=0, fps=30, preview=a.preview))
+    cmd_compose(argparse.Namespace(run=a.run, systems=systems, preview=a.preview, height=a.height))
 
 
 def main(argv=None):
@@ -364,50 +213,35 @@ def main(argv=None):
         return s
 
     def char_opt(s):
-        s.add_argument("--char", type=Path, default=DEFAULT_CHAR, help="character prefix (default assets/capsule)")
+        s.add_argument("--char", type=Path, default=DEFAULT_CHAR, help="rigged character prefix (default assets/plush_soft)")
 
     def render_opts(s):
-        s.add_argument("--engine", default="auto", choices=["auto", "eevee", "cycles", "workbench"])
+        s.add_argument("--engine", default="cycles", choices=["auto", "eevee", "cycles", "workbench"])
         s.add_argument("--width", type=int, default=540)
         s.add_argument("--height", type=int, default=960)
 
-    add("synth", cmd_synth, "run")
+    def agent_opts(s):
+        s.add_argument("--attempts", type=int, default=4, help="plans the agent may submit")
+        s.add_argument("--looks", type=int, default=4, help="times the agent may look at rendered frames")
+
     s = add("perceive", cmd_perceive, "video", "run"); s.add_argument("--max-seconds", type=float)
-    s = sub.add_parser("character"); s.set_defaults(fn=cmd_character)
-    s.add_argument("char", type=Path, nargs="?", default=DEFAULT_CHAR); s.add_argument("--engine", default="auto")
-    s = add("puppet", cmd_puppet, "image"); s.add_argument("char", type=Path, help="output prefix, e.g. assets/blob")
-    s.add_argument("--engine", default="auto"); s.add_argument("--no-vlm", action="store_true")
     s = add("model", cmd_model, "model"); s.add_argument("char", type=Path, help="output prefix, e.g. assets/plush")
-    s.add_argument("--engine", default="auto"); s.add_argument("--no-vlm", action="store_true")
+    s.add_argument("--engine", default="auto")
     s.add_argument("--yaw", type=float, default=0.0, help="rotate the model (degrees) if it does not face the camera")
-    s = add("card", cmd_card, "rig"); s.add_argument("--no-vlm", action="store_true")
-    s = add("agent", cmd_agent, "run"); char_opt(s)
-    s.add_argument("--name"); s.add_argument("--attempts", type=int, default=4); s.add_argument("--model")
-    s.add_argument("--no-card", action="store_true", help="ablation: hide the VLM body description")
-    s.add_argument("--no-revise", action="store_true", help="ablation: one attempt, no revision")
-    s = add("baseline", cmd_baseline, "run"); char_opt(s)
-    s = add("apply", cmd_apply, "run", "plan"); char_opt(s); s.add_argument("--name", default="handwritten")
     s = add("copy", cmd_copy, "run"); char_opt(s); s.add_argument("--name", default="copy")
     s.add_argument("--plan", help="a saved copy plan (e.g. runs/x/agent_copy/plan.json) to apply, no LLM")
-    s = add("copy-agent", cmd_copy_agent, "run"); char_opt(s); s.add_argument("--name", default="agent_copy")
-    s.add_argument("--looks", type=int, default=4, help="how many times the agent may look at rendered frames")
-    s.add_argument("--no-memory", action="store_true", help="ablation: run without the agent's memory")
-    s.add_argument("--attempts", type=int, default=4); s.add_argument("--model")
-    s = add("memory", cmd_memory); char_opt(s)
-    s.add_argument("--approve", type=int, help="approve pending spec proposal N (adds it to the spec's learned rules)")
-    s.add_argument("--reject", type=int, help="reject pending spec proposal N")
+    s = add("copy-agent", cmd_copy_agent, "run"); char_opt(s); agent_opts(s)
+    s.add_argument("--name", default="agent_copy"); s.add_argument("--model", help="LLM (OpenRouter id)")
     s = add("render", cmd_render, "run"); char_opt(s); render_opts(s)
-    s.add_argument("--systems", nargs="+", default=["agent", "posecopy"]); s.add_argument("--max-frames", type=int, default=0)
+    s.add_argument("--systems", nargs="+", default=["copy", "agent_copy"]); s.add_argument("--max-frames", type=int, default=0)
     s.add_argument("--fps", type=float, default=30, help="render frame rate (0 = the clip's own; default 30)")
     s.add_argument("--preview", action="store_true", help="quick untextured preview into <system>/preview")
-    s = add("compose", cmd_compose, "run"); s.add_argument("--systems", nargs="+", default=["agent", "posecopy"])
+    s = add("compose", cmd_compose, "run"); s.add_argument("--systems", nargs="+", default=["copy", "agent_copy"])
     s.add_argument("--preview", action="store_true", help="put the previews side by side")
     s.add_argument("--height", type=int, default=960)
-    s = sub.add_parser("eval"); s.set_defaults(fn=cmd_eval); s.add_argument("runs", nargs="+"); char_opt(s)
-    s.add_argument("--out", default=str(ROOT / "results" / "results.json"))
-    s = add("demo", cmd_demo, "video", "run"); char_opt(s); render_opts(s)
-    s.add_argument("--max-seconds", type=float); s.add_argument("--attempts", type=int, default=4)
-    s.add_argument("--image", help="character picture (PNG with transparency, or on a plain background)")
+    s = add("demo", cmd_demo, "video", "run"); char_opt(s); render_opts(s); agent_opts(s)
+    s.add_argument("--max-seconds", type=float)
+    s.add_argument("--preview", action="store_true", help="quick untextured renders instead of the full ones")
 
     a = p.parse_args(argv)
     a.fn(a)
