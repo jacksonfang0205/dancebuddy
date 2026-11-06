@@ -336,3 +336,14 @@ def test_memory_keeps_lessons_and_spec_changes_need_approval(tmp_path):
     m.decide(mem, spec, 0, approve=True)
     assert json.loads(spec.read_text())["learned"] == ["raised hands reach above the head"]
     assert m.view(mem)["pending_spec_proposals"] == []
+
+
+def test_command_line_options():
+    import subprocess
+    import sys
+    out = subprocess.run([sys.executable, "-m", "dancebuddy", "copy-agent", "--help"], capture_output=True, text=True,
+                         cwd=ROOT).stdout
+    assert "--attempts" in out and "--looks" in out and "--no-memory" in out
+    out = subprocess.run([sys.executable, "-m", "dancebuddy", "memory", "--help"], capture_output=True, text=True,
+                         cwd=ROOT).stdout
+    assert "--approve" in out and "--attempts" not in out
